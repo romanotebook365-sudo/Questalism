@@ -1,5 +1,4 @@
 import streamlit as st
-import plotly.express as px
 import pandas as pd
 
 st.set_page_config(page_title="Questalism", page_icon="💰", layout="wide")
@@ -16,10 +15,8 @@ with col2:
     currency = st.selectbox("Валюта", ["Рубли (₽)", "Доллары ($)"])
 
 if currency == "Доллары ($)":
-    rate = 90
     symbol = "$"
 else:
-    rate = 1
     symbol = "₽"
 
 target = st.number_input(f"Сколько стоит? ({symbol})", min_value=0, value=80000, step=1000)
@@ -99,8 +96,7 @@ if total_monthly > 0:
         balance += total_monthly
 
     df = pd.DataFrame(data)
-    fig = px.area(df, x="Месяц", y="Баланс", title="Рост капитала")
-    st.plotly_chart(fig, use_container_width=True)
+    st.line_chart(df.set_index("Месяц")["Баланс"])
 
     # Прогресс
     progress = min(current / target, 1.0)
