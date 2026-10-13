@@ -181,53 +181,98 @@ texts = {
 }
 
 t = texts[lang]
-
-st.title(t["title"])
-st.write(t["subtitle"])
-
-# --- 1. КТО ТЫ ---
-user_type = st.radio(t["who"], [t["teen"], t["adult"]])
-if user_type == t["teen"]:
-    age = st.slider(t["age"], 13, 17, 15)
-    jobs = [
-        (t["no"], 0), ("Promoter", 3000), ("Courier", 8000),
+# --- ДАННЫЕ ПО ЯЗЫКАМ ---
+if lang == "Русский":
+    jobs_teen = [
+        ("Нет", 0), ("Промоутер", 3000), ("Курьер", 8000),
+        ("Репетитор", 10000), ("Официант", 12000), ("Фриланс", 15000),
+        ("Мойка машин", 7000), ("Выгул собак", 5000),
+        ("Помощь с уроками", 6000), ("Продажа вещей", 4000),
+        ("Стриминг", 3000), ("Своя подработка", 0),
+    ]
+    jobs_adult = [
+        ("Нет", 0), ("Врач", 80000), ("Учитель", 50000),
+        ("Инженер", 70000), ("Программист", 100000), ("Менеджер", 60000),
+        ("Дизайнер", 65000), ("Маркетолог", 55000), ("Бухгалтер", 50000),
+        ("Юрист", 90000), ("Своя работа", 0),
+    ]
+    alternatives_teen = [
+        ("Найди подработку", "Дополнительный доход ускорит цель."),
+        ("Трать меньше", "Меньше трат — больше накоплений."),
+        ("Положи на вклад", "Банк платит процент. Деньги работают."),
+        ("Продай ненужное", "Старые вещи — это деньги."),
+    ]
+    alternatives_adult = [
+        ("Откладывай больше", "Увеличь сумму — срок сократится."),
+        ("Трать меньше", "Меньше трат — больше накоплений."),
+        ("Вклад", "Банк платит процент. Безопасно."),
+        ("Инвестиции", "Акции, облигации. Долгосрочно."),
+        ("Автоматизация", "Откладывай сразу при доходе."),
+    ]
+    terms_teen = {
+        "Инфляция": "Подорожание денег в будущем. Через год та же цель будет стоить дороже.",
+        "Вклад": "Ты кладёшь деньги в банк. Банк платит процент. Деньги работают.",
+    }
+    terms_adult = {
+        "Инфляция": "Подорожание денег. Через год та же цель будет стоить дороже.",
+        "Вклад": "Ты кладёшь деньги в банк. Банк платит процент.",
+        "Акции": "Доля в компании. Растёт компания — растут деньги.",
+        "Облигации": "Ты даёшь в долг. Тебе платят процент.",
+    }
+else:
+    jobs_teen = [
+        ("None", 0), ("Promoter", 3000), ("Courier", 8000),
         ("Tutor", 10000), ("Waiter", 12000), ("Freelance", 15000),
         ("Car wash", 7000), ("Dog walking", 5000),
         ("Homework help", 6000), ("Selling stuff", 4000),
-        ("Streaming", 3000), (t["own_job"], 0),
+        ("Streaming", 3000), ("Own part-time job", 0),
     ]
-    alternatives = [
+    jobs_adult = [
+        ("None", 0), ("Doctor", 80000), ("Teacher", 50000),
+        ("Engineer", 70000), ("Programmer", 100000), ("Manager", 60000),
+        ("Designer", 65000), ("Marketer", 55000), ("Accountant", 50000),
+        ("Lawyer", 90000), ("Own work", 0),
+    ]
+    alternatives_teen = [
         ("Find a part-time job", "Extra income will speed up your goal."),
         ("Spend less", "Less spending — more savings."),
         ("Put in a deposit", "Bank pays interest. Money works."),
         ("Sell unused stuff", "Old things — it's money."),
     ]
-    terms = {
-        "Inflation": "Prices rise in the future. A year later the same goal will cost more.",
-        "Deposit": "You put money in the bank. The bank pays interest. Money works.",
-    }
-else:
-    age = st.slider(t["age"], 18, 60, 30)
-    jobs = [
-        (t["no"], 0), ("Doctor", 80000), ("Teacher", 50000),
-        ("Engineer", 70000), ("Programmer", 100000), ("Manager", 60000),
-        ("Designer", 65000), ("Marketer", 55000), ("Accountant", 50000),
-        ("Lawyer", 90000), (t["own_work"], 0),
-    ]
-    alternatives = [
+    alternatives_adult = [
         ("Save more", "Increase the amount — the term will shrink."),
         ("Spend less", "Less spending — more savings."),
         ("Deposit", "Bank pays interest. Safe."),
         ("Investments", "Stocks, bonds. Long-term."),
         ("Automation", "Save immediately when you get paid."),
     ]
-    terms = {
+    terms_teen = {
+        "Inflation": "Prices rise in the future. A year later the same goal will cost more.",
+        "Deposit": "You put money in the bank. The bank pays interest. Money works.",
+    }
+    terms_adult = {
         "Inflation": "Prices rise in the future. A year later the same goal will cost more.",
         "Deposit": "You put money in the bank. The bank pays interest.",
         "Stocks": "A share in a company. If the company grows, your money grows.",
         "Bonds": "You lend money. You get paid interest.",
     }
 
+st.title(t["title"])
+st.write(t["subtitle"])
+
+# --- 1. КТО ТЫ ---
+user_type = st.radio(t["who"], [t["teen"], t["adult"]])
+
+if user_type == t["teen"]:
+    age = st.slider(t["age"], 13, 17, 15)
+    jobs = jobs_teen
+    alternatives = alternatives_teen
+    terms = terms_teen
+else:
+    age = st.slider(t["age"], 18, 60, 30)
+    jobs = jobs_adult
+    alternatives = alternatives_adult
+    terms = terms_adult
 # --- 2. ЦЕЛЬ ---
 st.header(t["goal_header"])
 col1, col2 = st.columns(2)
@@ -365,8 +410,7 @@ if total_monthly > 0:
     st.write(t["reminder1"])
     st.write(t["reminder2"])
     st.write(t["reminder3"])
-
-    # --- 7. КАК УСКОРИТЬ ---
+# --- 7. КАК УСКОРИТЬ ---
     st.header(t["speed_up"])
     st.write(f"• {t['if_more']} 500 {symbol} {t['more']} {(target - current) / (total_monthly + 500):.0f} {t['months']}")
     st.write(f"• {t['if_more']} 1000 {symbol} {t['more']} {(target - current) / (total_monthly + 1000):.0f} {t['months']}")
