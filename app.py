@@ -107,22 +107,47 @@ texts = {
         "status_green": "🟢 **Реально!** Ты достигнешь цели быстро.", "status_yellow": "🟡 **Средне.** Придется постараться.",
         "status_red": "🔴 **Долго.** Подумай, как увеличить доход.", "next_step": "👉 **Следующий шаг:**",
         "next_step_1": "Попробуй добавить подработку, чтобы сократить срок.",
-        "share_text": "Я накоплю на {goal} за {months} месяцев с Questalism! А ты сможешь? Проверь свои финансы: questalism.onrender.com",
+        "next_step_2": "Отлично! Теперь просто придерживайся плана.",
+        "share_text": "Я накоплю на {goal} за {months} месяцев с Questalism! А ты сможешь? Проверь свои финансы: questalism-llhu.onrender.com",
         "hustle_btn": "Сгенерировать идею", "hustle_result": "Тебе подойдет: {idea}. Примерный доход: {income} {symbol}.",
         "hustles": [("Выгул собак", 5000), ("Помощь с уроками", 6000), ("Курьер", 8000), ("Стриминг", 3000), ("Продажа вещей", 4000), ("Репетиторство", 10000), ("Компьютеры", 7000), ("Документы", 6000)],
-        "ach1": "🎯 **Первый шаг**", "ach2": "💎 **Сберегатель**", "ach3": "🥇 **Четверть пути**", "ach4": "🔥 **Половина**",
-        "ach5": "⭐ **Почти у цели**", "ach6": "🏆 **Марафонец**", "ach7": "🚀 **Спринтер**", "ach8": "💪 **Работяга**",
-        "ach9": "👑 **Высокий доход**", "ach10": "🎓 **Школьник**",
+        "ach1": "🎯 **Первый шаг** — ты начал копить.", 
+        "ach2": "💎 **Сберегатель** — откладываешь больше 1000 в месяц.", 
+        "ach3": "🥇 **Четверть пути** — ты прошёл 25% к цели.", 
+        "ach4": "🔥 **Половина** — ты на середине пути.",
+        "ach5": "⭐ **Почти у цели** — осталось 25%.", 
+        "ach6": "🏆 **Марафонец** — твоя цель на год и больше.", 
+        "ach7": "🚀 **Спринтер** — ты достигнешь цели за полгода.", 
+        "ach8": "💪 **Работяга** — у тебя есть дополнительный доход.",
+        "ach9": "👑 **Высокий доход** — ты зарабатываешь больше 10K.", 
+        "ach10": "🎓 **Школьник** — ты учишься и копишь одновременно.",
         "milestone_10": "10% — Первый шаг", "milestone_25": "25% — Четверть пути", "milestone_50": "50% — Экватор",
         "milestone_75": "75% — Финиш близко", "milestone_100": "100% — Покупка!", "milestone_done": "✅ Пройдено", "milestone_wait": "🔒 Впереди",
-        "why_save": "Почему важно копить", "why1": "• Свобода.", "why2": "• Мечты.", "why3": "• Уверенность.", "why4": "• Будущее.",
-        "spend_less": "Как меньше тратить", "spend1": "• Правило 24 часов.", "spend2": "• Список покупок.", "spend3": "• Кофе дома.", "spend4": "• Подписки.", "spend5": "• Импульс.",
-        "psychology": "Психология", "psy1": "• Автоматизация.", "psy2": "• Визуализация.", "psy3": "• Маленькие шаги.", "psy4": "• Поддержка.", "psy5": "• Прощение.",
-        "dictionary": "Словарь", "feature": "💡 Совет дня", "feature_btn": "Получить совет",
-        "tips": ["Начни с 100 рублей.", "Запиши цель.", "Сравни с собой.", "Отложи 10%.", "Начни сегодня."],
+        "why_save": "Почему важно копить", 
+        "why1": "• Финансовая свобода: ты не зависишь от родителей в мелочах.", 
+        "why2": "• Мечты сбываются: покупка того, что давно хотел.", 
+        "why3": "• Уверенность: ты знаешь, что у тебя есть запас.", 
+        "why4": "• Будущее: привычка копить останется с тобой навсегда.",
+        "spend_less": "Как меньше тратить", 
+        "spend1": "• Правило 24 часов: если хочешь импульсивную покупку — подожди день. Если желание не пропало — бери.", 
+        "spend2": "• Список покупок: иди в магазин только с готовым списком, чтобы не набрать лишнего.", 
+        "spend3": "• Кофе дома: делай напитки сам, это экономит тысячи рублей в месяц.", 
+        "spend4": "• Подписки: проверь, какими сервисами ты реально пользуешься. Остальные — отмени.", 
+        "spend5": "• Импульс: не покупай, когда злишься или грустишь.",
+        "psychology": "Психология накоплений", 
+        "psy1": "• Автоматизация: откладывай деньги сразу в день, когда они пришли.", 
+        "psy2": "• Визуализация: повесь картинку цели на видное место.", 
+        "psy3": "• Маленькие шаги: лучше отложить 100 рублей, чем 0.", 
+        "psy4": "• Поддержка: расскажи другу о цели, он будет тебя подбадривать.", 
+        "psy5": "• Прощение: если потратил лишнее — не ругай себя, просто продолжай.",
+        "dictionary": "Словарь", 
+        "feature": "💡 Совет дня", "feature_btn": "Получить совет",
+        "tips": ["Начни с 100 рублей. Главное — начать.", "Запиши цель на бумаге.", "Сравни с собой вчерашним.", "Отложи 10%.", "Не жди понедельника."],
         "dash_hello": "Привет, {name}!", "dash_level": "Уровень", "dash_xp": "Опыт", "dash_start": "🚀 Продолжить путь",
         "dash_daily": "📅 Задания дня", "dash_daily_1": "Зайди (✅)", "dash_daily_2": "Рассчитай цель", "dash_daily_3": "Прочитай совет",
-        "btn_save": "💾 Получить награду за сегодня", "btn_save_done": "✅ Награда получена"
+        "btn_save": "💾 Получить награду за сегодня", "btn_save_done": "✅ Награда получена",
+        "btn_save_info": "Ты уже получил награду за сегодня. Возвращайся завтра!",
+        "league_title": "🏆 Лига", "league_desc": "Соревнуйся с другими подростками! Зарабатывай XP и поднимайся в топ."
     },
     "English": {
         "title": "💰 Questalism", "subtitle": "Your dream. Your path. Your money.",
@@ -142,57 +167,67 @@ texts = {
         "need_daily": "Daily:", "wish": "Good luck!",
         "warning": "Enter > 0.", "goal_reached": "Goal reached! 🎉",
         "status_green": "🟢 **Realistic!**", "status_yellow": "🟡 **Medium.**", "status_red": "🔴 **Long.**",
-        "next_step": "👉 **Next:**", "next_step_1": "Add a job.",
-        "share_text": "I'll save for {goal} in {months} months with Questalism! Check: questalism.onrender.com",
+        "next_step": "👉 **Next:**", "next_step_1": "Add a job to speed up.", "next_step_2": "Great! Just stick to the plan.",
+        "share_text": "I'll save for {goal} in {months} months with Questalism! Check: questalism-llhu.onrender.com",
         "hustle_btn": "Generate idea", "hustle_result": "Try: {idea}. Income: {income} {symbol}.",
         "hustles": [("Dog walking", 5000), ("Homework", 6000), ("Courier", 8000), ("Streaming", 3000), ("Selling", 4000), ("Tutor", 10000), ("PC help", 7000), ("Docs", 6000)],
-        "ach1": "🎯 First step", "ach2": "💎 Saver", "ach3": "🥇 Quarter", "ach4": "🔥 Halfway",
-        "ach5": "⭐ Almost", "ach6": "🏆 Marathoner", "ach7": "🚀 Sprinter", "ach8": "💪 Worker",
-        "ach9": "👑 High income", "ach10": "🎓 Student",
+        "ach1": "🎯 **First step** — started saving.", "ach2": "💎 **Saver** — save > 1000/mo.", "ach3": "🥇 **Quarter** — 25% done.",
+        "ach4": "🔥 **Halfway** — 50% done.", "ach5": "⭐ **Almost** — 75% done.", "ach6": "🏆 **Marathoner** — > 1 year.",
+        "ach7": "🚀 **Sprinter** — < 6 months.", "ach8": "💪 **Worker** — extra income.", "ach9": "👑 **High income** — > 10K.",
+        "ach10": "🎓 **Student** — study & save.",
         "milestone_10": "10%", "milestone_25": "25%", "milestone_50": "50%",
         "milestone_75": "75%", "milestone_100": "100%", "milestone_done": "✅ Done", "milestone_wait": "🔒 Ahead",
-        "why_save": "Why save", "why1": "• Freedom.", "why2": "• Dreams.", "why3": "• Confidence.", "why4": "• Future.",
-        "spend_less": "Spend less", "spend1": "• 24h rule.", "spend2": "• List.", "spend3": "• Coffee.", "spend4": "• Subscriptions.", "spend5": "• Impulse.",
-        "psychology": "Psychology", "psy1": "• Automation.", "psy2": "• Visualization.", "psy3": "• Small steps.", "psy4": "• Support.", "psy5": "• Forgiveness.",
-        "dictionary": "Dictionary", "feature": "💡 Tip", "feature_btn": "Get tip",
+        "why_save": "Why save", "why1": "• Freedom: no dependence.", "why2": "• Dreams: buy what you want.", "why3": "• Confidence: safety net.", "why4": "• Future: habit for life.",
+        "spend_less": "Spend less", "spend1": "• 24h rule: wait a day before impulse buy.", "spend2": "• List: don't shop without it.", "spend3": "• Coffee: make it home.", "spend4": "• Subscriptions: cancel unused.", "spend5": "• Impulse: don't buy on emotions.",
+        "psychology": "Psychology", "psy1": "• Automation: save immediately.", "psy2": "• Visualization: look at goal.", "psy3": "• Small steps: 100 > 0.", "psy4": "• Support: tell a friend.", "psy5": "• Forgiveness: keep going.",
+        "dictionary": "Dictionary",
+        "feature": "💡 Tip", "feature_btn": "Get tip",
         "tips": ["Start with $1.", "Write goal.", "Compare to self.", "Save 10%.", "Start today."],
         "dash_hello": "Hello, {name}!", "dash_level": "Level", "dash_xp": "XP", "dash_start": "🚀 Continue",
         "dash_daily": "📅 Daily Quests", "dash_daily_1": "Log in (✅)", "dash_daily_2": "Calculate", "dash_daily_3": "Read tip",
-        "btn_save": "💾 Claim today's reward", "btn_save_done": "✅ Reward claimed"
+        "btn_save": "💾 Claim today's reward", "btn_save_done": "✅ Reward claimed",
+        "btn_save_info": "You already claimed today's reward. Come back tomorrow!",
+        "league_title": "🏆 League", "league_desc": "Compete with other teens! Earn XP and climb to the top."
     }
 }
 
 terms = {
-    "Русский": {"Инфляция": "Подорожание денег.", "Вклад": "Банк платит процент.", "Акции": "Доля в компании.", "Облигации": "Даёшь в долг."},
-    "English": {"Inflation": "Price rise.", "Deposit": "Interest.", "Stocks": "Share.", "Bonds": "Loan."}
+    "Русский": {"Инфляция": "Это когда деньги обесцениваются, а товары дорожают. Твоя цель через год будет стоить дороже.", "Вклад": "Ты даешь банку деньги, а он платит тебе процент."},
+    "English": {"Inflation": "Money loses value, prices rise. Your goal will cost more next year.", "Deposit": "You give money to the bank, they pay interest."}
 }
 
 # --- РАБОТА С ПАМЯТЬЮ БРАУЗЕРА ---
 localS = LocalStorage()
 saved_name = localS.getItem("questalism_user")
+saved_lang = localS.getItem("questalism_lang")
 
-if saved_name is None:
-    user_name = ""
-else:
-    user_name = saved_name
+if saved_name is None: user_name = ""
+else: user_name = saved_name
+
+if saved_lang is None: initial_lang_idx = 0
+else: initial_lang_idx = 0 if saved_lang == "Русский" else 1
 
 # --- ОНБОРДИНГ ---
 if not user_name:
     st.set_page_config(page_title="Questalism", page_icon="💰", layout="centered")
-    st.title("💰 Добро пожаловать в Questalism!")
+    st.title("💰 Questalism")
     st.write("---")
-    st.subheader("Давай познакомимся. Как тебя зовут?")
     
-    new_name = st.text_input("Введи своё имя:")
+    # Выбор языка в онбординге
+    ob_lang = st.radio("Язык / Language", ["Русский", "English"], horizontal=True)
+    ob_t = texts[ob_lang]
     
-    if st.button("Начать путь 🚀", use_container_width=True):
+    st.subheader("Давай познакомимся. Как тебя зовут?" if ob_lang == "Русский" else "Let's get acquainted. What's your name?")
+    new_name = st.text_input("Введи своё имя:" if ob_lang == "Русский" else "Enter your name:")
+    
+    if st.button("Начать путь 🚀" if ob_lang == "Русский" else "Start 🚀", use_container_width=True):
         if new_name.strip():
-            clean_name = new_name.strip()
-            create_user(clean_name)
-            localS.setItem("questalism_user", clean_name)
+            create_user(new_name.strip())
+            localS.setItem("questalism_user", new_name.strip())
+            localS.setItem("questalism_lang", ob_lang)
             st.rerun()
         else:
-            st.error("Пожалуйста, введи имя.")
+            st.error("Введи имя!" if ob_lang == "Русский" else "Enter name!")
     st.stop()
 
 # Если имя есть - загружаем данные
@@ -234,7 +269,8 @@ st.markdown(
 # --- НАВИГАЦИЯ ---
 col_lang, col_space, col_streak, col_xp = st.columns([2, 2, 1, 1])
 with col_lang:
-    lang = st.radio("Язык / Language", ["Русский", "English"], horizontal=True, label_visibility="collapsed")
+    lang = st.radio("Язык / Language", ["Русский", "English"], index=initial_lang_idx, horizontal=True, label_visibility="collapsed", on_change=lambda: localS.setItem("questalism_lang", st.session_state.lang_selector) if "lang_selector" in st.session_state else None, key="lang_selector")
+
 t = texts[lang]
 current_terms = terms[lang]
 level = (xp // 100) + 1
@@ -284,8 +320,8 @@ if st.session_state.page == "home":
 # СТРАНИЦА ЛИГА
 # ==========================================
 elif st.session_state.page == "league":
-    st.title("🏆 Лига")
-    st.write("Соревнуйся с другими подростками! Зарабатывай XP и поднимайся в топ.")
+    st.title(t["league_title"])
+    st.write(t["league_desc"])
     leaderboard_data = get_leaderboard()
     for rank, (name, p_xp) in enumerate(leaderboard_data, start=1):
         row_class = "league-me" if name == user_name else ""
@@ -422,18 +458,23 @@ elif st.session_state.page == "game":
         if extra > 0: earned.append(t["ach8"])
         if user_type == t["teen"]: earned.append(t["ach10"])
         for ach in earned: st.markdown(f'<div class="achievement">{ach}</div>', unsafe_allow_html=True)
-        st.info(f"{t['next_step']} {t['next_step_1']}")
+        
+        # Умный совет next_step
+        if extra == 0:
+            st.info(f"{t['next_step']} {t['next_step_1']}")
+        else:
+            st.success(f"{t['next_step']} {t['next_step_2']}")
         
         st.write("---")
         if last_xp_date == date.today().isoformat():
             st.button(t["btn_save_done"], disabled=True, use_container_width=True)
-            st.info("Ты уже получил награду за сегодня. Возвращайся завтра!")
+            st.info(t["btn_save_info"])
         else:
             if st.button(t["btn_save"], use_container_width=True):
                 success = claim_daily_reward(user_name)
                 if success:
                     st.balloons()
-                    st.success("Сохранено! +50 XP, +10 💎")
+                    st.success("Сохранено! +50 XP, +10 💎" if lang == "Русский" else "Saved! +50 XP, +10 💎")
                     st.rerun()
 
         share_msg = t["share_text"].format(goal=goal, months=f"{months:.0f}")
