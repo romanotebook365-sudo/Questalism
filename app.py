@@ -404,4 +404,103 @@ elif st.session_state.page == "game":
     if job_choice in [t["own_job"]]:
         extra = st.number_input(f"{t['salary']} ({symbol})", min_value=0, value=0, step=1000)
     elif job_choice != t["no"]:
-        extra = st.number_input(f"{t['salary']} ({symbol})", min_value=0, value=int(base_salary), step=1000
+        extra = st.number_input(f"{t['salary']} ({symbol})", min_value=0, value=int(base_salary), step=1000)
+
+    total_monthly = monthly + extra
+    st.header(t["result"])
+    if target <= current:
+        st.success(t["goal_reached"])
+    elif total_monthly > 0:
+        months = (target - current) / total_monthly
+        years = months / 12
+        inflation = 0.06
+        real_target = target * ((1 + inflation) ** years)
+
+        st.markdown(f"""
+        <div class="result-card">
+            <h2 style="margin:0;">🎯 {goal}: {target:,.0f} {symbol}</h2>
+            <h3 style="margin:10px 0 0 0;">⏱️ {months:.0f} {t['months']}</h3>
+        </div>
+        """, unsafe_allow_html=True)
+        col1, col2 = st.columns(2)
+        with col1: st.metric(t["target_label"], f"{target:,.0f} {symbol}")
+        with col2: st.metric(t["inflation_label"], f"{real_target:,.0f} {symbol}")
+        if months <= 6: st.success(t["status_green"])
+        elif months <= 18: st.warning(t["status_yellow"])
+        else: st.error(t["status_red"])
+
+        data = []
+        balance = current
+        for m in range(int(months) + 1):
+            data.append({t["chart_month"]: m, t["chart_balance"]: balance})
+            balance += total_monthly
+        df = pd.DataFrame(data)
+        st.line_chart(df.set_index(t["chart_month"])[t["chart_balance"]])
+        progress = min(current / target, 1.0)
+        st.progress(progress)
+        st.write(f"{t['you_at']} {progress * 100:.1f}{t['to_goal']}")
+
+        st.header(t["quest_levels"])
+        def milestone_status(percentage): return t["milestone_done"] if progress >= percentage else t["milestone_wait"]
+        st.markdown(f'<div class="quest-level"><b>{t["milestone_10"]}</b> ({target * 0.1:,.0f} {symbol}) — {milestone_status(0.1)}</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="quest-level"><b>{t["milestone_25"]}</b> ({target * 0.25:,.0f} {symbol}) — {milestone_status(0.25)}</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="quest-level"><b>{t["milestone_50"]}</b> ({target * 0.5:,.0f} {symbol}) — {milestone_status(0.5)}</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="quest-level"><b>{t["milestone_75"]}</b> ({target * 0.75:,.0f} {symbol}) — {milestone_status(0.75)}</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="quest-level"><b>{t["milestone_100"]}</b> ({target:,.0f} {symbol}) — {milestone_status(1.0)}</div>', unsafe_allow_html=True)
+
+        st.header(t["achievements"])
+        earned = []
+        if progress > 0.01: earned.append(t["ach1"])
+        if monthly >= 1000: earned.append(t["ach2"])
+        if progress > 0.25: earned.append(t["ach3"])
+        if progress > 0.5: earned.append(t["ach4"])
+        if progress > 0.75: earned.append(t["ach5"])
+        if years > 1: earned.append(t["ach6"])
+        if months < 6: earned.append(t["ach7"])
+        if extra > 0: earned.append(t["ach8"])
+        if user_type == t["teen"]: earned.append(t["ach10"])
+        for ach in earned: st.markdown(f'<div class="achievement">{ach}</div>', unsafe_allow_html=True)
+        
+        if extra == 0:
+            st.info(f"{t['next_step']} {t['next_step_1']}")
+        else:
+            st.success(f"{t['next_step']} {t['next_step_2']}")
+        
+        st.write("---")
+        if last_xp_date == date.today().isoformat():
+            st.button(t["btn_save_done"], disabled=True, use_container_width=True)
+            st.info(t["btn_save_info"])
+        else:
+            if st.button(t["btn_save"], use_container_width=True):
+                success = claim_daily_reward(user_name)
+                if success:
+                    st.balloons()
+                    st.success("Сохранено! +50 XP, +10 💎" if lang == "Русский" else "Saved! +50 XP, +10 💎")
+                    st.rerun()
+
+        share_msg = t["share_text"].format(goal=goal, months=f"{months:.0f}")
+        st.code(share_msg, language="text")
+        st.success(t["wish"])
+    else:
+        st.warning(t["warning"])
+
+# ==========================================
+# СТРАНИЦА 2: БАЗА ЗНАНИЙ
+# ==========================================
+elif st.session_state.page == "knowledge":
+    st.header(t["speed_up"])
+    st.info("Введи данные в разделе 'Твой квест', чтобы увидеть персональные расчеты." if lang == "Русский" else "Enter data in 'Your Quest' to see personalized calculations.")
+    st.divider()
+    st.header(t["why_save"])
+    st.write(t["why1"]); st.write(t["why2"]); st.write(t["why3"]); st.write(t["why4"])
+    st.header(t["spend_less"])
+    st.write(t["spend1"]); st.write(t["spend2"]); st.write(t["spend3"]); st.write(t["spend4"]); st.write(t["spend5"])
+    st.header(t["psychology"])
+    st.write(t["psy1"]); st.write(t["psy2"]); st.write(t["psy3"]); st.write(t["psy4"]); st.write(t["psy5"])
+    st.header(t["dictionary"])
+    for term, definition in current_terms.items():
+        st.write(f"**{term}** — {definition}")
+    st.divider()
+    st.header(t["feature"])
+    if st.button(t["feature_btn"]):
+        st.success(random.choice(t["tips"]))
