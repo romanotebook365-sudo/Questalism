@@ -1,3 +1,5 @@
 streamlit
 pandas
 streamlit-local-storage
+sqlalchemy
+psycopg2-binary
