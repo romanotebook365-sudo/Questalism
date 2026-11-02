@@ -1,200 +1,149 @@
 import streamlit as st
 import pandas as pd
 import random
-import sqlite3
+import os
 from datetime import date, timedelta
 from streamlit_local_storage import LocalStorage
 import streamlit.components.v1 as components
+from sqlalchemy import create_engine, text
 
+# --- НАСТРОЙКА БАЗЫ ДАННЫХ (SUPABASE) ---
+DB_URL = os.environ.get("DATABASE_URL")
 
-# --- НАСТРОЙКА БАЗЫ ДАННЫХ ---
+if not DB_URL:
+    st.error("Ошибка: Переменная окружения DATABASE_URL не настроена на Render.")
+    st.stop()
+
+if DB_URL.startswith("postgres://"):
+    DB_URL = DB_URL.replace("postgres://", "postgresql://", 1)
+
+engine = create_engine(DB_URL)
+
 def init_db():
-    conn = sqlite3.connect('questalism.db')
-    c = conn.cursor()
-    c.execute('''CREATE TABLE IF NOT EXISTS users
-                 (name TEXT PRIMARY KEY, streak INTEGER, last_login TEXT, xp INTEGER, crystals INTEGER, 
-                  last_xp_date TEXT, theme TEXT, quest_calc INTEGER, quest_read INTEGER, level INTEGER, shared INTEGER,
-                  max_streak INTEGER, max_level INTEGER, avatar TEXT, chest_claimed INTEGER, last_bonus_date TEXT, last_challenge_date TEXT)''')
-    c.execute('''CREATE TABLE IF NOT EXISTS leaderboard
-                 (name TEXT PRIMARY KEY, xp INTEGER)''')
-    c.execute('''CREATE TABLE IF NOT EXISTS saved_goals
-                 (id INTEGER PRIMARY KEY AUTOINCREMENT, user_name TEXT, goal_name TEXT, target_amount REAL, saved_amount REAL)''')
-
-    c.execute("SELECT COUNT(*) FROM leaderboard")
-    if c.fetchone()[0] == 0:
-        bots = [("Alex", 120, "🐱"), ("Max", 85, "🐶"), ("Sophie", 150, "🦊"), ("Ivan", 40, "🐻"), ("Kate", 200, "🐼")]
-        for bot_name, bot_xp, bot_avatar in bots:
-            c.execute("INSERT OR IGNORE INTO users (name, avatar) VALUES (?, ?)", (bot_name, bot_avatar))
-            c.execute("INSERT OR IGNORE INTO leaderboard (name, xp) VALUES (?, ?)", (bot_name, bot_xp))
-    conn.commit()
-    conn.close()
-
+    with engine.connect() as conn:
+        conn.execute(text('''CREATE TABLE IF NOT EXISTS users
+                     (name TEXT PRIMARY KEY, streak INTEGER, last_login TEXT, xp INTEGER, crystals INTEGER, 
+                      last_xp_date TEXT, theme TEXT, quest_calc INTEGER, quest_read INTEGER, level INTEGER, shared INTEGER,
+                      max_streak INTEGER, max_level INTEGER, avatar TEXT, chest_claimed INTEGER, last_bonus_date TEXT, last_challenge_date TEXT)'''))
+        conn.execute(text('''CREATE TABLE IF NOT EXISTS leaderboard
+                     (name TEXT PRIMARY KEY, xp INTEGER)'''))
+        conn.execute(text('''CREATE TABLE IF NOT EXISTS saved_goals
+                     (id SERIAL PRIMARY KEY, user_name TEXT, goal_name TEXT, target_amount REAL, saved_amount REAL)'''))
+        
+        result = conn.execute(text("SELECT COUNT(*) FROM leaderboard")).fetchone()
+        if result[0] == 0:
+            bots = [("Alex", 120, "🐱"), ("Max", 85, "🐶"), ("Sophie", 150, "🦊"), ("Ivan", 40, "🐻"), ("Kate", 200, "🐼")]
+            for bot_name, bot_xp, bot_avatar in bots:
+                conn.execute(text("INSERT INTO users (name, avatar) VALUES (:name, :avatar) ON CONFLICT DO NOTHING"), {"name": bot_name, "avatar": bot_avatar})
+                conn.execute(text("INSERT INTO leaderboard (name, xp) VALUES (:name, :xp) ON CONFLICT DO NOTHING"), {"name": bot_name, "xp": bot_xp})
+        conn.commit()
 
 def get_user_stats(name):
-    conn = sqlite3.connect('questalism.db')
-    c = conn.cursor()
-    c.execute(
-        "SELECT streak, last_login, xp, crystals, last_xp_date, theme, quest_calc, quest_read, level, shared, max_streak, max_level, avatar, chest_claimed FROM users WHERE name = ?",
-        (name,))
-    data = c.fetchone()
-    conn.close()
-    return data
-
+    with engine.connect() as conn:
+        result = conn.execute(text("SELECT streak, last_login, xp, crystals, last_xp_date, theme, quest_calc, quest_read, level, shared, max_streak, max_level, avatar, chest_claimed FROM users WHERE name = :name"), {"name": name}).fetchone()
+        return result
 
 def create_user(name):
-    conn = sqlite3.connect('questalism.db')
-    c = conn.cursor()
-    c.execute(
-        "INSERT OR IGNORE INTO users (name, streak, last_login, xp, crystals, last_xp_date, theme, quest_calc, quest_read, level, shared, max_streak, max_level, avatar, chest_claimed, last_bonus_date, last_challenge_date) VALUES (?, 0, '', 0, 0, '', 'default', 0, 0, 1, 0, 0, 1, '🦉', 0, '', '')",
-        (name,))
-    c.execute("INSERT OR IGNORE INTO leaderboard (name, xp) VALUES (?, 0)", (name,))
-    conn.commit()
-    conn.close()
-
+    with engine.connect() as conn:
+        conn.execute(text("INSERT INTO users (name, streak, last_login, xp, crystals, last_xp_date, theme, quest_calc, quest_read, level, shared, max_streak, max_level, avatar, chest_claimed, last_bonus_date, last_challenge_date) VALUES (:name, 0, '', 0, 0, '', 'default', 0, 0, 1, 0, 0, 1, '🦉', 0, '', '') ON CONFLICT DO NOTHING"), {"name": name})
+        conn.execute(text("INSERT INTO leaderboard (name, xp) VALUES (:name, 0) ON CONFLICT DO NOTHING"), {"name": name})
+        conn.commit()
 
 def save_goal_to_db(user_name, goal_name, target, current):
-    conn = sqlite3.connect('questalism.db')
-    c = conn.cursor()
-    c.execute("INSERT INTO saved_goals (user_name, goal_name, target_amount, saved_amount) VALUES (?, ?, ?, ?)",
-              (user_name, goal_name, target, current))
-    conn.commit()
-    conn.close()
-
+    with engine.connect() as conn:
+        conn.execute(text("INSERT INTO saved_goals (user_name, goal_name, target_amount, saved_amount) VALUES (:u, :g, :t, :c)"), {"u": user_name, "g": goal_name, "t": target, "c": current})
+        conn.commit()
 
 def get_saved_goals(user_name):
-    conn = sqlite3.connect('questalism.db')
-    c = conn.cursor()
-    c.execute("SELECT id, goal_name, target_amount, saved_amount FROM saved_goals WHERE user_name = ?", (user_name,))
-    data = c.fetchall()
-    conn.close()
-    return data
-
+    with engine.connect() as conn:
+        return conn.execute(text("SELECT id, goal_name, target_amount, saved_amount FROM saved_goals WHERE user_name = :u"), {"u": user_name}).fetchall()
 
 def delete_goal(goal_id):
-    conn = sqlite3.connect('questalism.db')
-    c = conn.cursor()
-    c.execute("DELETE FROM saved_goals WHERE id = ?", (goal_id,))
-    conn.commit()
-    conn.close()
-
+    with engine.connect() as conn:
+        conn.execute(text("DELETE FROM saved_goals WHERE id = :id"), {"id": goal_id})
+        conn.commit()
 
 def buy_avatar(name, avatar_emoji, cost):
-    conn = sqlite3.connect('questalism.db')
-    c = conn.cursor()
-    c.execute("SELECT crystals FROM users WHERE name = ?", (name,))
-    crystals = c.fetchone()[0]
-    if crystals >= cost:
-        c.execute("UPDATE users SET crystals = crystals - ?, avatar = ? WHERE name = ?", (cost, avatar_emoji, name))
-        conn.commit()
-        conn.close()
-        return True
-    conn.close()
-    return False
-
+    with engine.connect() as conn:
+        crystals = conn.execute(text("SELECT crystals FROM users WHERE name = :name"), {"name": name}).fetchone()[0]
+        if crystals >= cost:
+            conn.execute(text("UPDATE users SET crystals = crystals - :cost, avatar = :av WHERE name = :name"), {"cost": cost, "av": avatar_emoji, "name": name})
+            conn.commit()
+            return True
+        return False
 
 def update_streak_and_xp(name):
-    conn = sqlite3.connect('questalism.db')
-    c = conn.cursor()
-    c.execute("SELECT streak, last_login, xp, level, max_streak, max_level FROM users WHERE name = ?", (name,))
-    streak, last_login, xp, current_level, max_streak, max_level = c.fetchone()
+    with engine.connect() as conn:
+        user = conn.execute(text("SELECT streak, last_login, xp, level, max_streak, max_level FROM users WHERE name = :name"), {"name": name}).fetchone()
+        streak, last_login, xp, current_level, max_streak, max_level = user
 
-    now = date.today()
-    if last_login:
-        last_date = date.fromisoformat(last_login)
-        delta = (now - last_date).days
-        if delta == 1:
-            streak += 1
-        elif delta > 1:
+        now = date.today()
+        if last_login:
+            last_date = date.fromisoformat(last_login)
+            delta = (now - last_date).days
+            if delta == 1: streak += 1
+            elif delta > 1: streak = 1
+        else:
             streak = 1
-    else:
-        streak = 1
 
-    today_str = now.isoformat()
-    if last_login != today_str:
-        xp += 10
-        if streak % 7 == 0:
-            xp += 50
-            st.toast(f"🔥 Огонь! Ты заходишь {streak} дней подряд. Получено +50 XP!", icon="🎁")
-        elif streak % 3 == 0:
-            xp += 20
-            st.toast(f"⚡ Отличный стрик! {streak} дней. Получено +20 XP!", icon="✨")
+        today_str = now.isoformat()
+        if last_login != today_str:
+            xp += 10
+            if streak % 7 == 0:
+                xp += 50
+                st.toast(f"🔥 Огонь! Ты заходишь {streak} дней подряд. Получено +50 XP!", icon="🎁")
+            elif streak % 3 == 0:
+                xp += 20
+                st.toast(f"⚡ Отличный стрик! {streak} дней. Получено +20 XP!", icon="✨")
 
-    new_level = (xp // 100) + 1
-    if new_level > current_level:
-        crystals_bonus = 50
-        c.execute("UPDATE users SET crystals = crystals + ? WHERE name = ?", (crystals_bonus, name))
-        st.toast(f"🎉 Новый уровень {new_level}! Получено 50 💎", icon="🎊")
+        new_level = (xp // 100) + 1
+        if new_level > current_level:
+            conn.execute(text("UPDATE users SET crystals = crystals + 50 WHERE name = :name"), {"name": name})
+            st.toast(f"🎉 Новый уровень {new_level}! Получено 50 💎", icon="🎊")
 
-    if streak > max_streak: max_streak = streak
-    if new_level > max_level: max_level = new_level
+        if streak > max_streak: max_streak = streak
+        if new_level > max_level: max_level = new_level
 
-    c.execute(
-        "UPDATE users SET streak = ?, last_login = ?, xp = ?, level = ?, max_streak = ?, max_level = ? WHERE name = ?",
-        (streak, today_str, xp, new_level, max_streak, max_level, name))
-    c.execute("UPDATE leaderboard SET xp = ? WHERE name = ?", (xp, name))
-    conn.commit()
-    conn.close()
-
+        conn.execute(text("UPDATE users SET streak = :st, last_login = :ll, xp = :xp, level = :lv, max_streak = :ms, max_level = :ml WHERE name = :name"), 
+                     {"st": streak, "ll": today_str, "xp": xp, "lv": new_level, "ms": max_streak, "ml": max_level, "name": name})
+        conn.execute(text("UPDATE leaderboard SET xp = :xp WHERE name = :name"), {"xp": xp, "name": name})
+        conn.commit()
 
 def claim_daily_challenge(name):
-    conn = sqlite3.connect('questalism.db')
-    c = conn.cursor()
-    today_str = date.today().isoformat()
-    c.execute("UPDATE users SET xp = xp + 30, crystals = crystals + 30, last_challenge_date = ? WHERE name = ?",
-              (today_str, name))
-    conn.commit()
-
-    c.execute("SELECT xp FROM users WHERE name = ?", (name,))
-    new_xp = c.fetchone()[0]
-    c.execute("UPDATE leaderboard SET xp = ? WHERE name = ?", (new_xp, name))
-    conn.commit()
-    conn.close()
-
+    with engine.connect() as conn:
+        today_str = date.today().isoformat()
+        conn.execute(text("UPDATE users SET xp = xp + 30, crystals = crystals + 30, last_challenge_date = :d WHERE name = :name"), {"d": today_str, "name": name})
+        conn.commit()
+        new_xp = conn.execute(text("SELECT xp FROM users WHERE name = :name"), {"name": name}).fetchone()[0]
+        conn.execute(text("UPDATE leaderboard SET xp = :xp WHERE name = :name"), {"xp": new_xp, "name": name})
+        conn.commit()
 
 def complete_quest(name, quest_name, reward_xp, reward_crystals):
-    conn = sqlite3.connect('questalism.db')
-    c = conn.cursor()
-    if quest_name == "calc":
-        c.execute("UPDATE users SET quest_calc = 1, xp = xp + ?, crystals = crystals + ? WHERE name = ?",
-                  (reward_xp, reward_crystals, name))
-    elif quest_name == "read":
-        c.execute("UPDATE users SET quest_read = 1, xp = xp + ?, crystals = crystals + ? WHERE name = ?",
-                  (reward_xp, reward_crystals, name))
-    elif quest_name == "share":
-        c.execute("UPDATE users SET shared = 1, crystals = crystals + ? WHERE name = ?", (reward_crystals, name))
-
-    c.execute("SELECT xp FROM users WHERE name = ?", (name,))
-    new_xp = c.fetchone()[0]
-    c.execute("UPDATE leaderboard SET xp = ? WHERE name = ?", (new_xp, name))
-    conn.commit()
-    conn.close()
-
+    with engine.connect() as conn:
+        if quest_name == "calc":
+            conn.execute(text("UPDATE users SET quest_calc = 1, xp = xp + :rx, crystals = crystals + :rc WHERE name = :name"), {"rx": reward_xp, "rc": reward_crystals, "name": name})
+        elif quest_name == "read":
+            conn.execute(text("UPDATE users SET quest_read = 1, xp = xp + :rx, crystals = crystals + :rc WHERE name = :name"), {"rx": reward_xp, "rc": reward_crystals, "name": name})
+        elif quest_name == "share":
+            conn.execute(text("UPDATE users SET shared = 1, crystals = crystals + :rc WHERE name = :name"), {"rc": reward_crystals, "name": name})
+        conn.commit()
+        new_xp = conn.execute(text("SELECT xp FROM users WHERE name = :name"), {"name": name}).fetchone()[0]
+        conn.execute(text("UPDATE leaderboard SET xp = :xp WHERE name = :name"), {"xp": new_xp, "name": name})
+        conn.commit()
 
 def buy_theme(name, theme_id, cost):
-    conn = sqlite3.connect('questalism.db')
-    c = conn.cursor()
-    c.execute("SELECT crystals FROM users WHERE name = ?", (name,))
-    crystals = c.fetchone()[0]
-    if crystals >= cost:
-        c.execute("UPDATE users SET crystals = crystals - ?, theme = ? WHERE name = ?", (cost, theme_id, name))
-        conn.commit()
-        conn.close()
-        return True
-    conn.close()
-    return False
-
+    with engine.connect() as conn:
+        crystals = conn.execute(text("SELECT crystals FROM users WHERE name = :name"), {"name": name}).fetchone()[0]
+        if crystals >= cost:
+            conn.execute(text("UPDATE users SET crystals = crystals - :cost, theme = :theme WHERE name = :name"), {"cost": cost, "theme": theme_id, "name": name})
+            conn.commit()
+            return True
+        return False
 
 def get_leaderboard():
-    conn = sqlite3.connect('questalism.db')
-    c = conn.cursor()
-    c.execute('''SELECT leaderboard.name, leaderboard.xp, users.avatar 
-                 FROM leaderboard 
-                 LEFT JOIN users ON leaderboard.name = users.name 
-                 ORDER BY leaderboard.xp DESC''')
-    data = c.fetchall()
-    conn.close()
-    return [(row[0], row[1], row[2] if row[2] else "🦉") for row in data]
-
+    with engine.connect() as conn:
+        result = conn.execute(text("SELECT leaderboard.name, leaderboard.xp, users.avatar FROM leaderboard LEFT JOIN users ON leaderboard.name = users.name ORDER BY leaderboard.xp DESC")).fetchall()
+        return [(row[0], row[1], row[2] if row[2] else "🦉") for row in result]
 
 def calc_compound(principal, monthly, annual_rate, years):
     months = int(years * 12)
@@ -207,7 +156,6 @@ def calc_compound(principal, monthly, annual_rate, years):
             balances.append((m / 12, total))
     contributed = principal + monthly * months
     return total, contributed, balances
-
 
 init_db()
 
@@ -505,51 +453,40 @@ if "ob_lang" not in st.session_state:
 
 if not user_name:
     st.set_page_config(page_title="Questalism", page_icon="💰", layout="centered")
-
-    # Выбор языка на самом верху
+    
     st.session_state.ob_lang = st.radio("Язык / Language", ["Русский", "English"], horizontal=True)
     ob_lang = st.session_state.ob_lang
 
     if not st.session_state.show_onboarding:
-        # --- ЛЕНДИНГ ---
         if ob_lang == "Русский":
             st.markdown("<h1 style='text-align: center; font-size: 50px;'>💰 Questalism</h1>", unsafe_allow_html=True)
-            st.markdown("<h3 style='text-align: center; color: gray;'>Твоя мечта. Твой путь. Твои деньги.</h3>",
-                        unsafe_allow_html=True)
+            st.markdown("<h3 style='text-align: center; color: gray;'>Твоя мечта. Твой путь. Твои деньги.</h3>", unsafe_allow_html=True)
             st.write("---")
-
             col1, col2, col3 = st.columns([1, 2, 1])
             with col2:
                 st.write("### 🎯 Что это?")
-                st.write(
-                    "Твой личный финансовый симулятор. Узнай, как накопить на мечту, прокачай уровень и обгони друзей.")
+                st.write("Твой личный финансовый симулятор. Узнай, как накопить на мечту, прокачай уровень и обгони друзей.")
                 st.write("### 📈 Почему это круто?")
-                st.write(
-                    "- Считает срок накопления с учетом инфляции\n- Учит финансовой грамотности\n- Игровая механика и рейтинги")
+                st.write("- Считает срок накопления с учетом инфляции\n- Учит финансовой грамотности\n- Игровая механика и рейтинги")
                 st.write("---")
                 if st.button("Начать бесплатно 🚀", use_container_width=True, type="primary"):
                     st.session_state.show_onboarding = True
                     st.rerun()
         else:
             st.markdown("<h1 style='text-align: center; font-size: 50px;'>💰 Questalism</h1>", unsafe_allow_html=True)
-            st.markdown("<h3 style='text-align: center; color: gray;'>Your dream. Your path. Your money.</h3>",
-                        unsafe_allow_html=True)
+            st.markdown("<h3 style='text-align: center; color: gray;'>Your dream. Your path. Your money.</h3>", unsafe_allow_html=True)
             st.write("---")
-
             col1, col2, col3 = st.columns([1, 2, 1])
             with col2:
                 st.write("### 🎯 What is it?")
-                st.write(
-                    "Your personal financial simulator. Learn how to save for a dream, level up, and beat your friends.")
+                st.write("Your personal financial simulator. Learn how to save for a dream, level up, and beat your friends.")
                 st.write("### 📈 Why is it cool?")
-                st.write(
-                    "- Calculates saving time with inflation\n- Teaches financial literacy\n- Game mechanics and ratings")
+                st.write("- Calculates saving time with inflation\n- Teaches financial literacy\n- Game mechanics and ratings")
                 st.write("---")
                 if st.button("Start for free 🚀", use_container_width=True, type="primary"):
                     st.session_state.show_onboarding = True
                     st.rerun()
     else:
-        # --- ЭКРАН ВВОДА ИМЕНИ ---
         if ob_lang == "Русский":
             st.title("Давай познакомимся!")
             st.write("Осталось сделать последний шаг.")
@@ -586,7 +523,6 @@ if not user_name:
                 if st.button("⬅️ Back", use_container_width=True):
                     st.session_state.show_onboarding = False
                     st.rerun()
-
     st.stop()
 
 # Данные
@@ -597,8 +533,7 @@ if stats is None:
 
 streak, last_login, xp, crystals, last_xp_date, current_theme, quest_calc, quest_read, level, shared, max_streak, max_level, current_avatar, chest_claimed = stats
 update_streak_and_xp(user_name)
-streak, last_login, xp, crystals, last_xp_date, current_theme, quest_calc, quest_read, level, shared, max_streak, max_level, current_avatar, chest_claimed = get_user_stats(
-    user_name)
+streak, last_login, xp, crystals, last_xp_date, current_theme, quest_calc, quest_read, level, shared, max_streak, max_level, current_avatar, chest_claimed = get_user_stats(user_name)
 
 st.set_page_config(page_title="Questalism", page_icon="💰", layout="wide")
 
@@ -739,13 +674,9 @@ if st.session_state.page == "home":
                 st.markdown(f'<div class="{ach_class}">{icon}</div>', unsafe_allow_html=True)
         st.markdown(f'<div class="ach-hint">{t["achievements_earned"]}</div>', unsafe_allow_html=True)
 
-        # --- ЕЖЕДНЕВНЫЙ ЧЕЛЛЕНДЖ ---
         today_str = date.today().isoformat()
-        conn = sqlite3.connect('questalism.db')
-        c = conn.cursor()
-        c.execute("SELECT last_challenge_date FROM users WHERE name = ?", (user_name,))
-        last_challenge = c.fetchone()[0]
-        conn.close()
+        with engine.connect() as conn:
+            last_challenge = conn.execute(text("SELECT last_challenge_date FROM users WHERE name = :name"), {"name": user_name}).fetchone()[0]
 
         st.write("---")
         st.markdown(f"""
@@ -790,7 +721,6 @@ if st.session_state.page == "home":
             st.markdown(f'<div class="quest-step quest-step-done">✅ {t["q_step4"]}</div>', unsafe_allow_html=True)
 
     st.write("---")
-    # Кнопка приватности
     if st.button(t["privacy_btn"], use_container_width=True):
         st.session_state.page = "privacy"
         st.rerun()
@@ -812,7 +742,7 @@ elif st.session_state.page == "league":
     for rank, (name, p_xp, p_avatar) in enumerate(all_players, start=1):
         if name == user_name:
             my_rank = rank
-
+            
         row_class = "league-me" if name == user_name else ""
         medal = "🥇" if rank == 1 else "🥈" if rank == 2 else "🥉" if rank == 3 else f"{rank}."
 
@@ -829,7 +759,7 @@ elif st.session_state.page == "league":
         my_rank = len(all_players)
 
     league_share_text = t["share_league_text"].format(rank=my_rank)
-
+    
     st.write(t["share_league_btn"])
     st.code(league_share_text, language="text")
 
@@ -1016,10 +946,8 @@ elif st.session_state.page == "game":
 
         st.header(t["quest_levels"])
 
-
         def milestone_status(percentage):
             return t["milestone_done"] if progress >= percentage else t["milestone_wait"]
-
 
         st.markdown(
             f'<div class="quest-level"><b>{t["milestone_10"]}</b> ({st.session_state.target * 0.1:,.0f} {symbol_display}) — {milestone_status(0.1)}</div>',
@@ -1297,7 +1225,7 @@ elif st.session_state.page == "dictionary":
 elif st.session_state.page == "privacy":
     st.title(t["privacy_title"])
     st.markdown(t["privacy_text"])
-
+    
     st.write("---")
     if st.button(t["btn_next_home"], use_container_width=True):
         st.session_state.page = "home"
