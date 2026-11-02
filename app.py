@@ -1,17 +1,16 @@
-import streamlit.components.v1 as components
 import streamlit as st
 import pandas as pd
 import random
 import sqlite3
 from datetime import date, timedelta
 from streamlit_local_storage import LocalStorage
+import streamlit.components.v1 as components
 
-# f
+
 # --- НАСТРОЙКА БАЗЫ ДАННЫХ ---
 def init_db():
     conn = sqlite3.connect('questalism.db')
     c = conn.cursor()
-    # Добавлена колонка last_challenge_date
     c.execute('''CREATE TABLE IF NOT EXISTS users
                  (name TEXT PRIMARY KEY, streak INTEGER, last_login TEXT, xp INTEGER, crystals INTEGER, 
                   last_xp_date TEXT, theme TEXT, quest_calc INTEGER, quest_read INTEGER, level INTEGER, shared INTEGER,
@@ -141,7 +140,6 @@ def claim_daily_challenge(name):
     conn = sqlite3.connect('questalism.db')
     c = conn.cursor()
     today_str = date.today().isoformat()
-    # Даем 30 XP и 30 кристаллов за челлендж
     c.execute("UPDATE users SET xp = xp + 30, crystals = crystals + 30, last_challenge_date = ? WHERE name = ?",
               (today_str, name))
     conn.commit()
@@ -237,7 +235,7 @@ texts = {
         "status_red": "🔴 Долго. Подумай, как увеличить доход.", "next_step": "👉 Следующий шаг:",
         "next_step_1": "Попробуй добавить подработку, чтобы сократить срок.",
         "next_step_2": "Отлично! Теперь просто придерживайся плана.",
-        "share_text": "Я накоплю на {goal} за {months} месяцев с Questalism! А ты сможешь? Проверь свои финансы: questalism.onrender.com",
+        "share_text": "Я накоплю на {goal} за {months} месяцев с Questalism! А ты сможешь? Проверь свои финансы: questalism-7uln.onrender.com",
         "hustle_btn": "Сгенерировать идею",
         "hustle_result": "Тебе подойдет: {idea}. Примерный доход: {income} {symbol}.",
         "hustles": [("Выгул собак", 5000), ("Помощь с уроками", 6000), ("Курьер", 8000), ("Стриминг", 3000),
@@ -314,6 +312,7 @@ texts = {
         "save_goal_btn": "💾 Сохранить эту цель", "my_goals": "📂 Мои цели",
         "no_goals": "У тебя пока нет сохраненных целей.",
         "share_league_btn": "📢 Похвастаться местом в Рейтинге",
+        "share_league_text": "Я на {rank} месте в Рейтинге Questalism! Попробуй обыграть меня: questalism-7uln.onrender.com",
         "safety_title": "🛡️ Подушка безопасности",
         "safety_desc": "Сколько денег тебе нужно, чтобы чувствовать себя в безопасности?",
         "safety_expenses": "Твои месячные расходы (обед, транспорт, подписки):",
@@ -374,7 +373,7 @@ texts = {
         "status_red": "🔴 Long. Think about how to increase income.",
         "next_step": "👉 Next:", "next_step_1": "Add a job to speed up.",
         "next_step_2": "Great! Just stick to the plan.",
-        "share_text": "I'll save for {goal} in {months} months with Questalism! Check: questalism.onrender.com",
+        "share_text": "I'll save for {goal} in {months} months with Questalism! Check: questalism-7uln.onrender.com",
         "hustle_btn": "Generate idea", "hustle_result": "Try: {idea}. Income: {income} {symbol}.",
         "hustles": [("Dog walking", 5000), ("Homework", 6000), ("Courier", 8000), ("Streaming", 3000),
                     ("Selling", 4000), ("Tutor", 10000), ("PC help", 7000), ("Docs", 6000)],
@@ -444,6 +443,7 @@ texts = {
         },
         "save_goal_btn": "💾 Save this goal", "my_goals": "📂 My Goals", "no_goals": "You don't have saved goals yet.",
         "share_league_btn": "📢 Brag about your Rating rank",
+        "share_league_text": "I'm #{rank} in the Questalism Rating! Try to beat me: questalism-7uln.onrender.com",
         "safety_title": "🛡️ Emergency Fund", "safety_desc": "How much money do you need to feel safe?",
         "safety_expenses": "Your monthly expenses (lunch, transport, subs):",
         "safety_months": "How many months do you need?", "safety_result": "Your emergency fund:",
@@ -500,53 +500,92 @@ else:
 # --- ОНБОРДИНГ ---
 if "show_onboarding" not in st.session_state:
     st.session_state.show_onboarding = False
+if "ob_lang" not in st.session_state:
+    st.session_state.ob_lang = "Русский"
 
 if not user_name:
     st.set_page_config(page_title="Questalism", page_icon="💰", layout="centered")
 
+    # Выбор языка на самом верху
+    st.session_state.ob_lang = st.radio("Язык / Language", ["Русский", "English"], horizontal=True)
+    ob_lang = st.session_state.ob_lang
+
     if not st.session_state.show_onboarding:
         # --- ЛЕНДИНГ ---
-        st.markdown("<h1 style='text-align: center; font-size: 50px;'>💰 Questalism</h1>", unsafe_allow_html=True)
-        st.markdown("<h3 style='text-align: center; color: gray;'>Твоя мечта. Твой путь. Твои деньги.</h3>",
-                    unsafe_allow_html=True)
-        st.write("---")
-
-        col1, col2, col3 = st.columns([1, 2, 1])
-        with col2:
-            st.write("### 🎯 Что это?")
-            st.write(
-                "Твой личный финансовый симулятор. Узнай, как накопить на мечту, прокачай уровень и обгони друзей.")
-            st.write("### 📈 Почему это круто?")
-            st.write(
-                "- Считает срок накопления с учетом инфляции\n- Учит финансовой грамотности\n- Игровая механика и рейтинги")
+        if ob_lang == "Русский":
+            st.markdown("<h1 style='text-align: center; font-size: 50px;'>💰 Questalism</h1>", unsafe_allow_html=True)
+            st.markdown("<h3 style='text-align: center; color: gray;'>Твоя мечта. Твой путь. Твои деньги.</h3>",
+                        unsafe_allow_html=True)
             st.write("---")
 
-            if st.button("Начать бесплатно 🚀", use_container_width=True, type="primary"):
-                st.session_state.show_onboarding = True
-                st.rerun()
+            col1, col2, col3 = st.columns([1, 2, 1])
+            with col2:
+                st.write("### 🎯 Что это?")
+                st.write(
+                    "Твой личный финансовый симулятор. Узнай, как накопить на мечту, прокачай уровень и обгони друзей.")
+                st.write("### 📈 Почему это круто?")
+                st.write(
+                    "- Считает срок накопления с учетом инфляции\n- Учит финансовой грамотности\n- Игровая механика и рейтинги")
+                st.write("---")
+                if st.button("Начать бесплатно 🚀", use_container_width=True, type="primary"):
+                    st.session_state.show_onboarding = True
+                    st.rerun()
+        else:
+            st.markdown("<h1 style='text-align: center; font-size: 50px;'>💰 Questalism</h1>", unsafe_allow_html=True)
+            st.markdown("<h3 style='text-align: center; color: gray;'>Your dream. Your path. Your money.</h3>",
+                        unsafe_allow_html=True)
+            st.write("---")
+
+            col1, col2, col3 = st.columns([1, 2, 1])
+            with col2:
+                st.write("### 🎯 What is it?")
+                st.write(
+                    "Your personal financial simulator. Learn how to save for a dream, level up, and beat your friends.")
+                st.write("### 📈 Why is it cool?")
+                st.write(
+                    "- Calculates saving time with inflation\n- Teaches financial literacy\n- Game mechanics and ratings")
+                st.write("---")
+                if st.button("Start for free 🚀", use_container_width=True, type="primary"):
+                    st.session_state.show_onboarding = True
+                    st.rerun()
     else:
         # --- ЭКРАН ВВОДА ИМЕНИ ---
-        st.title("Давай познакомимся!")
-        st.write("Осталось сделать последний шаг.")
-
-        ob_lang = st.radio("Язык / Language", ["Русский", "English"], horizontal=True)
-
-        new_name = st.text_input("Введи своё имя:" if ob_lang == "Русский" else "Enter your name:")
-
-        col_btn1, col_btn2 = st.columns(2)
-        with col_btn1:
-            if st.button("Начать путь 🚀" if ob_lang == "Русский" else "Start 🚀", use_container_width=True):
-                if new_name.strip():
-                    create_user(new_name.strip())
-                    localS.setItem("questalism_user", new_name.strip(), key="save_user_1")
-                    localS.setItem("questalism_lang", ob_lang, key="save_lang_1")
+        if ob_lang == "Русский":
+            st.title("Давай познакомимся!")
+            st.write("Осталось сделать последний шаг.")
+            new_name = st.text_input("Введи своё имя:")
+            col_btn1, col_btn2 = st.columns(2)
+            with col_btn1:
+                if st.button("Начать путь 🚀", use_container_width=True):
+                    if new_name.strip():
+                        create_user(new_name.strip())
+                        localS.setItem("questalism_user", new_name.strip(), key="save_user_1")
+                        localS.setItem("questalism_lang", ob_lang, key="save_lang_1")
+                        st.rerun()
+                    else:
+                        st.error("Введи имя!")
+            with col_btn2:
+                if st.button("⬅️ Назад", use_container_width=True):
+                    st.session_state.show_onboarding = False
                     st.rerun()
-                else:
-                    st.error("Введи имя!" if ob_lang == "Русский" else "Enter name!")
-        with col_btn2:
-            if st.button("⬅️ Назад", use_container_width=True):
-                st.session_state.show_onboarding = False
-                st.rerun()
+        else:
+            st.title("Let's get acquainted!")
+            st.write("Just one last step.")
+            new_name = st.text_input("Enter your name:")
+            col_btn1, col_btn2 = st.columns(2)
+            with col_btn1:
+                if st.button("Start 🚀", use_container_width=True):
+                    if new_name.strip():
+                        create_user(new_name.strip())
+                        localS.setItem("questalism_user", new_name.strip(), key="save_user_1")
+                        localS.setItem("questalism_lang", ob_lang, key="save_lang_1")
+                        st.rerun()
+                    else:
+                        st.error("Enter name!")
+            with col_btn2:
+                if st.button("⬅️ Back", use_container_width=True):
+                    st.session_state.show_onboarding = False
+                    st.rerun()
 
     st.stop()
 
@@ -581,10 +620,10 @@ else:
     btn_color = "#6c5ce7"
 
 text_color = "#000000" if current_theme == "light" else "#ffffff"
+
 # --- GOOGLE ANALYTICS ---
-# Вставляем скрипт только на сервере (на Render), чтобы не засорять статистику локальными запусками
 if "localhost" not in st.context.headers.get("Host", ""):
-    ga_id = "G-TXX82GHF78" # Твой ID
+    ga_id = "G-TXX82GHF78"
     ga_script = f"""
         <script async src="https://www.googletagmanager.com/gtag/js?id={ga_id}"></script>
         <script>
@@ -595,6 +634,7 @@ if "localhost" not in st.context.headers.get("Host", ""):
         </script>
     """
     components.html(ga_script, height=0, width=0)
+
 st.markdown(
     f"""
     <style>
@@ -788,7 +828,7 @@ elif st.session_state.page == "league":
     if 'my_rank' not in locals():
         my_rank = len(all_players)
 
-    league_share_text = f"Я на {my_rank} месте в Рейтинге Questalism! Попробуй обыграть меня: questalism.onrender.com"
+    league_share_text = t["share_league_text"].format(rank=my_rank)
 
     st.write(t["share_league_btn"])
     st.code(league_share_text, language="text")
