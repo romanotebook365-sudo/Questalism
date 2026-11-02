@@ -1,20 +1,21 @@
+import streamlit.components.v1 as components
 import streamlit as st
 import pandas as pd
 import random
 import sqlite3
 from datetime import date, timedelta
 from streamlit_local_storage import LocalStorage
-import pyperclip
 
 
 # --- НАСТРОЙКА БАЗЫ ДАННЫХ ---
 def init_db():
     conn = sqlite3.connect('questalism.db')
     c = conn.cursor()
+    # Добавлена колонка last_challenge_date
     c.execute('''CREATE TABLE IF NOT EXISTS users
                  (name TEXT PRIMARY KEY, streak INTEGER, last_login TEXT, xp INTEGER, crystals INTEGER, 
                   last_xp_date TEXT, theme TEXT, quest_calc INTEGER, quest_read INTEGER, level INTEGER, shared INTEGER,
-                  max_streak INTEGER, max_level INTEGER, avatar TEXT, chest_claimed INTEGER)''')
+                  max_streak INTEGER, max_level INTEGER, avatar TEXT, chest_claimed INTEGER, last_bonus_date TEXT, last_challenge_date TEXT)''')
     c.execute('''CREATE TABLE IF NOT EXISTS leaderboard
                  (name TEXT PRIMARY KEY, xp INTEGER)''')
     c.execute('''CREATE TABLE IF NOT EXISTS saved_goals
@@ -28,6 +29,8 @@ def init_db():
             c.execute("INSERT OR IGNORE INTO leaderboard (name, xp) VALUES (?, ?)", (bot_name, bot_xp))
     conn.commit()
     conn.close()
+
+
 def get_user_stats(name):
     conn = sqlite3.connect('questalism.db')
     c = conn.cursor()
@@ -43,7 +46,7 @@ def create_user(name):
     conn = sqlite3.connect('questalism.db')
     c = conn.cursor()
     c.execute(
-        "INSERT OR IGNORE INTO users (name, streak, last_login, xp, crystals, last_xp_date, theme, quest_calc, quest_read, level, shared, max_streak, max_level, avatar, chest_claimed) VALUES (?, 0, '', 0, 0, '', 'default', 0, 0, 1, 0, 0, 1, '🦉', 0)",
+        "INSERT OR IGNORE INTO users (name, streak, last_login, xp, crystals, last_xp_date, theme, quest_calc, quest_read, level, shared, max_streak, max_level, avatar, chest_claimed, last_bonus_date, last_challenge_date) VALUES (?, 0, '', 0, 0, '', 'default', 0, 0, 1, 0, 0, 1, '🦉', 0, '', '')",
         (name,))
     c.execute("INSERT OR IGNORE INTO leaderboard (name, xp) VALUES (?, 0)", (name,))
     conn.commit()
@@ -74,6 +77,8 @@ def delete_goal(goal_id):
     c.execute("DELETE FROM saved_goals WHERE id = ?", (goal_id,))
     conn.commit()
     conn.close()
+
+
 def buy_avatar(name, avatar_emoji, cost):
     conn = sqlite3.connect('questalism.db')
     c = conn.cursor()
@@ -132,12 +137,22 @@ def update_streak_and_xp(name):
     conn.close()
 
 
-def claim_chest(name):
+def claim_daily_challenge(name):
     conn = sqlite3.connect('questalism.db')
     c = conn.cursor()
-    c.execute("UPDATE users SET crystals = crystals + 100, chest_claimed = 1 WHERE name = ?", (name,))
+    today_str = date.today().isoformat()
+    # Даем 30 XP и 30 кристаллов за челлендж
+    c.execute("UPDATE users SET xp = xp + 30, crystals = crystals + 30, last_challenge_date = ? WHERE name = ?",
+              (today_str, name))
+    conn.commit()
+
+    c.execute("SELECT xp FROM users WHERE name = ?", (name,))
+    new_xp = c.fetchone()[0]
+    c.execute("UPDATE leaderboard SET xp = ? WHERE name = ?", (new_xp, name))
     conn.commit()
     conn.close()
+
+
 def complete_quest(name, quest_name, reward_xp, reward_crystals):
     conn = sqlite3.connect('questalism.db')
     c = conn.cursor()
@@ -184,7 +199,6 @@ def get_leaderboard():
 
 
 def calc_compound(principal, monthly, annual_rate, years):
-    """Возвращает (итог_со_сложным_процентом, вложено_всего, список_балансов_по_годам)."""
     months = int(years * 12)
     r = annual_rate / 100 / 12
     balances = []
@@ -198,11 +212,12 @@ def calc_compound(principal, monthly, annual_rate, years):
 
 
 init_db()
+
 # --- СЛОВАРИ ---
 texts = {
     "Русский": {
         "title": "💰 Questalism", "subtitle": "Твоя мечта. Твой путь. Твои деньги.",
-        "nav_home": "🏠 Главная", "nav_game": "🎮 Квест", "nav_league": "🏆 Лига", "nav_shop": "🛒 Магазин",
+        "nav_home": "🏠 Главная", "nav_game": "🎮 Квест", "nav_league": "🏆 Рейтинг", "nav_shop": "🛒 Магазин",
         "nav_knowledge": "📚 База", "nav_dictionary": "📖 Словарь",
         "who": "Кто ты?", "teen": "Подросток", "adult": "Взрослый", "age": "Сколько тебе лет?",
         "goal_header": "1. Твоя цель", "goal_input": "На что копишь?", "currency": "Валюта",
@@ -222,7 +237,7 @@ texts = {
         "status_red": "🔴 Долго. Подумай, как увеличить доход.", "next_step": "👉 Следующий шаг:",
         "next_step_1": "Попробуй добавить подработку, чтобы сократить срок.",
         "next_step_2": "Отлично! Теперь просто придерживайся плана.",
-        "share_text": "Я накоплю на {goal} за {months} месяцев с Questalism! А ты сможешь? Проверь свои финансы: questalism-llhu.onrender.com",
+        "share_text": "Я накоплю на {goal} за {months} месяцев с Questalism! А ты сможешь? Проверь свои финансы: questalism.onrender.com",
         "hustle_btn": "Сгенерировать идею",
         "hustle_result": "Тебе подойдет: {idea}. Примерный доход: {income} {symbol}.",
         "hustles": [("Выгул собак", 5000), ("Помощь с уроками", 6000), ("Курьер", 8000), ("Стриминг", 3000),
@@ -261,14 +276,14 @@ texts = {
         "dash_daily": "📅 Задания дня", "dash_daily_1": "Зайди (✅)", "dash_daily_2": "Рассчитай цель (+50 XP)",
         "dash_daily_3": "Прочитай совет (+20 XP)",
         "streak_label": "Стрик", "days": "дней", "crystals_label": "Кристаллы",
-        "league_title": "🏆 Лига", "league_desc": "Соревнуйся с другими пользователями!",
+        "league_title": "🏆 Рейтинг", "league_desc": "Соревнуйся с другими пользователями!",
         "shop_title": "🛒 Магазин", "shop_desc": "Трать кристаллы на улучшение профиля.",
         "theme_default": "Классика", "theme_neon": "Неон", "theme_light": "Светлая", "theme_space": "Космос",
         "theme_dark": "Ночная",
         "cost_label": "Стоимость: {cost} 💎",
         "buy_btn": "Купить за {cost} 💎", "owned_btn": "Уже куплено ✅", "not_enough": "Не хватает кристаллов!",
         "btn_next_game": "Идём к цели ➡️", "btn_next_knowledge": "Идём в Базу знаний ➡️",
-        "btn_next_league": "Идём в Лигу ➡️", "btn_next_shop": "Идём в Магазин ➡️",
+        "btn_next_league": "Идём в Рейтинг ➡️", "btn_next_shop": "Идём в Магазин ➡️",
         "btn_next_home": "Идём на Главную ➡️", "btn_next_dict": "Идём в Словарь ➡️",
         "quest_calc_done": "Квест 'Рассчитать цель' выполнен! +50 XP, +10 💎",
         "quest_read_done": "Квест 'Прочитать совет' выполнен! +20 XP, +5 💎",
@@ -276,7 +291,6 @@ texts = {
         "btn_share_reward": "📲 Скопировать и получить 20 💎", "share_reward_done": "✅ Награда за рекламу получена!",
         "records_title": "🏅 Личные рекорды", "rec_streak": "Максимальный стрик", "rec_level": "Максимальный уровень",
         "ad_text": "Скопируй текст ниже и отправь другу:",
-        "chest_title": "🎁 Сундук за 7 дней", "chest_desc": "Заходи 7 дней подряд, чтобы получить 100 💎",
         "level_progress": "Прогресс до следующего уровня", "copy_btn": "📋 Скопировать текст",
         "copied": "✅ Скопировано!",
         "view_profile": "Посмотреть профиль соперника",
@@ -297,11 +311,9 @@ texts = {
             "Инвестиции": "Вложение денег с целью получить доход в будущем (акции, облигации, недвижимость).",
             "Кэшбэк": "Возврат части потраченных денег на карту. Своего рода скидка от банка."
         },
-        "chest_claim_btn": "Забрать 100 💎",
-        "chest_claimed_msg": "Ты уже забрал сундук! Возвращайся, когда накопишь новый стрик.",
         "save_goal_btn": "💾 Сохранить эту цель", "my_goals": "📂 Мои цели",
         "no_goals": "У тебя пока нет сохраненных целей.",
-        "share_league_btn": "📢 Похвастаться местом в Лиге",
+        "share_league_btn": "📢 Похвастаться местом в Рейтинге",
         "safety_title": "🛡️ Подушка безопасности",
         "safety_desc": "Сколько денег тебе нужно, чтобы чувствовать себя в безопасности?",
         "safety_expenses": "Твои месячные расходы (обед, транспорт, подписки):",
@@ -311,14 +323,6 @@ texts = {
         "safety_hint": "Рекомендуем копить на 3-6 месяцев жизни.", "made_with_love": "Сделано с ❤️ для всех. v1.0",
         "hide_btn": "🙈 Скрыть цифры", "show_btn": "👁️ Показать цифры",
         "hide_mode_info": "Режим скрытия цифр включён. Нажми «Показать цифры», чтобы вернуться к вводу.",
-        "league_panel_title": "Все лиги",
-        "league_bronze": "🥉 Бронза", "league_silver": "🥈 Серебро", "league_gold": "🥇 Золото",
-        "league_range": "{min}–{max} XP", "league_range_max": "{min}+ XP",
-        "league_you_are_here": "📍 Ты здесь",
-        "league_show": "Показать лигу",
-        "league_players": "Игроков: {n}",
-        "league_current": "Твоя лига",
-        "league_back_to_mine": "📍 Вернуться в мою лигу",
         "compound_title": "✨ Сила сложного процента",
         "compound_desc": "Посмотри, как работают деньги, когда проценты начисляются на проценты.",
         "compound_principal": "Начальная сумма",
@@ -331,11 +335,25 @@ texts = {
         "compound_contributed": "Всего вложено",
         "compound_profit": "Заработано на процентах",
         "compound_magic": "Магия сложного процента дала тебе +{diff} сверху!",
-        "compound_chart": "Рост капитала по годам"
+        "compound_chart": "Рост капитала по годам",
+        "privacy_title": "🔒 Политика конфиденциальности",
+        "privacy_text": """**Твоя приватность важна для нас.**
+
+1. **Какие данные мы собираем:** Мы сохраняем только имя, которое ты ввел, и твои финансовые цели, чтобы ты мог видеть свой прогресс и участвовать в рейтинге.
+2. **Как мы используем данные:** Данные используются исключительно внутри платформы Questalism. Мы не передаем их третьим лицам и не продаем рекламным сетям.
+3. **Хранение:** Мы используем LocalStorage в твоем браузере для запоминания входа.
+4. **Удаление:** Ты всегда можешь начать с чистого листа, очистив кэш браузера или создав новый профиль.
+
+Играй, копи и не переживай о безопасности! 🛡️""",
+        "privacy_btn": "🔒 Политика конфиденциальности",
+        "challenge_title": "🔥 Челлендж дня",
+        "challenge_desc": "Отложи сегодня 100 ₽ (или больше) на свою цель. Это формирует привычку!",
+        "challenge_btn": "✅ Я отложил 100 ₽ (+30 XP, +30 💎)",
+        "challenge_done": "✅ Ты выполнил челлендж дня! Возвращайся завтра."
     },
     "English": {
         "title": "💰 Questalism", "subtitle": "Your dream. Your path. Your money.",
-        "nav_home": "🏠 Home", "nav_game": "🎮 Quest", "nav_league": "🏆 League", "nav_shop": "🛒 Shop",
+        "nav_home": "🏠 Home", "nav_game": "🎮 Quest", "nav_league": "🏆 Rating", "nav_shop": "🛒 Shop",
         "nav_knowledge": "📚 Knowledge", "nav_dictionary": "📖 Dictionary",
         "who": "Who are you?", "teen": "Teenager", "adult": "Adult", "age": "Age?",
         "goal_header": "1. Goal", "goal_input": "Saving for?", "currency": "Currency",
@@ -356,7 +374,7 @@ texts = {
         "status_red": "🔴 Long. Think about how to increase income.",
         "next_step": "👉 Next:", "next_step_1": "Add a job to speed up.",
         "next_step_2": "Great! Just stick to the plan.",
-        "share_text": "I'll save for {goal} in {months} months with Questalism! Check: questalism-llhu.onrender.com",
+        "share_text": "I'll save for {goal} in {months} months with Questalism! Check: questalism.onrender.com",
         "hustle_btn": "Generate idea", "hustle_result": "Try: {idea}. Income: {income} {symbol}.",
         "hustles": [("Dog walking", 5000), ("Homework", 6000), ("Courier", 8000), ("Streaming", 3000),
                     ("Selling", 4000), ("Tutor", 10000), ("PC help", 7000), ("Docs", 6000)],
@@ -390,14 +408,14 @@ texts = {
         "dash_daily": "📅 Daily Quests", "dash_daily_1": "Log in (✅)", "dash_daily_2": "Calculate (+50 XP)",
         "dash_daily_3": "Read tip (+20 XP)",
         "streak_label": "Streak", "days": "days", "crystals_label": "Crystals",
-        "league_title": "🏆 League", "league_desc": "Compete with other users!",
+        "league_title": "🏆 Rating", "league_desc": "Compete with other users!",
         "shop_title": "🛒 Shop", "shop_desc": "Spend crystals to upgrade your profile.",
         "theme_default": "Classic", "theme_neon": "Neon", "theme_light": "Light", "theme_space": "Space",
         "theme_dark": "Night",
         "cost_label": "Cost: {cost} 💎",
         "buy_btn": "Buy for {cost} 💎", "owned_btn": "Owned ✅", "not_enough": "Not enough crystals!",
         "btn_next_game": "Go to Quest ➡️", "btn_next_knowledge": "Go to Knowledge ➡️",
-        "btn_next_league": "Go to League ➡️", "btn_next_shop": "Go to Shop ➡️", "btn_next_home": "Go to Home ➡️",
+        "btn_next_league": "Go to Rating ➡️", "btn_next_shop": "Go to Shop ➡️", "btn_next_home": "Go to Home ➡️",
         "btn_next_dict": "Go to Dictionary ➡️",
         "quest_calc_done": "Quest 'Calculate' completed! +50 XP, +10 💎",
         "quest_read_done": "Quest 'Read tip' completed! +20 XP, +5 💎",
@@ -405,7 +423,6 @@ texts = {
         "btn_share_reward": "📲 Copy and get 20 💎", "share_reward_done": "✅ Ad reward received!",
         "records_title": "🏅 Personal Records", "rec_streak": "Max Streak", "rec_level": "Max Level",
         "ad_text": "Copy the text below and send it to a friend:",
-        "chest_title": "🎁 7-Day Chest", "chest_desc": "Log in 7 days in a row to get 100 💎",
         "level_progress": "Progress to next level", "copy_btn": "📋 Copy text", "copied": "✅ Copied!",
         "view_profile": "View rival's profile",
         "avatar_shop": "🦉 Avatars", "avatar_desc": "Change your owl!",
@@ -425,10 +442,8 @@ texts = {
             "Investments": "Putting money to work to get income in the future.",
             "Cashback": "Returning a percentage of spent money back to your card."
         },
-        "chest_claim_btn": "Claim 100 💎",
-        "chest_claimed_msg": "You already claimed the chest! Come back when you build a new streak.",
         "save_goal_btn": "💾 Save this goal", "my_goals": "📂 My Goals", "no_goals": "You don't have saved goals yet.",
-        "share_league_btn": "📢 Brag about your League rank",
+        "share_league_btn": "📢 Brag about your Rating rank",
         "safety_title": "🛡️ Emergency Fund", "safety_desc": "How much money do you need to feel safe?",
         "safety_expenses": "Your monthly expenses (lunch, transport, subs):",
         "safety_months": "How many months do you need?", "safety_result": "Your emergency fund:",
@@ -437,14 +452,6 @@ texts = {
         "made_with_love": "Made with ❤️ for everyone. v1.0",
         "hide_btn": "🙈 Hide numbers", "show_btn": "👁️ Show numbers",
         "hide_mode_info": "Hide mode is ON. Click 'Show numbers' to edit.",
-        "league_panel_title": "All leagues",
-        "league_bronze": "🥉 Bronze", "league_silver": "🥈 Silver", "league_gold": "🥇 Gold",
-        "league_range": "{min}–{max} XP", "league_range_max": "{min}+ XP",
-        "league_you_are_here": "📍 You are here",
-        "league_show": "Show league",
-        "league_players": "Players: {n}",
-        "league_current": "Your league",
-        "league_back_to_mine": "📍 Back to my league",
         "compound_title": "✨ The power of compound interest",
         "compound_desc": "See what money does when interest earns interest.",
         "compound_principal": "Starting amount",
@@ -457,9 +464,24 @@ texts = {
         "compound_contributed": "Total contributed",
         "compound_profit": "Earned on interest",
         "compound_magic": "Compound interest magic gave you +{diff} extra!",
-        "compound_chart": "Capital growth by year"
+        "compound_chart": "Capital growth by year",
+        "privacy_title": "🔒 Privacy Policy",
+        "privacy_text": """**Your privacy matters to us.**
+
+1. **What data we collect:** We only save the name you enter and your financial goals to track your progress and show you on the leaderboard.
+2. **How we use data:** Data is used exclusively within Questalism. We do not share it with third parties or sell it to ad networks.
+3. **Storage:** We use LocalStorage in your browser to remember your login.
+4. **Deletion:** You can always start fresh by clearing your browser cache or creating a new profile.
+
+Play, save, and don't worry about security! 🛡️""",
+        "privacy_btn": "🔒 Privacy Policy",
+        "challenge_title": "🔥 Daily Challenge",
+        "challenge_desc": "Save 100 ₽ (or more) today for your goal. It builds a habit!",
+        "challenge_btn": "✅ I saved 100 ₽ (+30 XP, +30 💎)",
+        "challenge_done": "✅ You completed today's challenge! Come back tomorrow."
     }
 }
+
 # --- ПАМЯТЬ БРАУЗЕРА ---
 localS = LocalStorage()
 saved_name = localS.getItem("questalism_user")
@@ -476,24 +498,56 @@ else:
     lang_index = 0
 
 # --- ОНБОРДИНГ ---
+if "show_onboarding" not in st.session_state:
+    st.session_state.show_onboarding = False
+
 if not user_name:
     st.set_page_config(page_title="Questalism", page_icon="💰", layout="centered")
-    st.title("💰 Questalism")
-    st.write("---")
-    ob_lang = st.radio("Язык / Language", ["Русский", "English"], horizontal=True)
 
-    st.subheader(
-        "Давай познакомимся. Как тебя зовут?" if ob_lang == "Русский" else "Let's get acquainted. What's your name?")
-    new_name = st.text_input("Введи своё имя:" if ob_lang == "Русский" else "Enter your name:")
+    if not st.session_state.show_onboarding:
+        # --- ЛЕНДИНГ ---
+        st.markdown("<h1 style='text-align: center; font-size: 50px;'>💰 Questalism</h1>", unsafe_allow_html=True)
+        st.markdown("<h3 style='text-align: center; color: gray;'>Твоя мечта. Твой путь. Твои деньги.</h3>",
+                    unsafe_allow_html=True)
+        st.write("---")
 
-    if st.button("Начать путь 🚀" if ob_lang == "Русский" else "Start 🚀", use_container_width=True):
-        if new_name.strip():
-            create_user(new_name.strip())
-            localS.setItem("questalism_user", new_name.strip(), key="save_user_1")
-            localS.setItem("questalism_lang", ob_lang, key="save_lang_1")
-            st.rerun()
-        else:
-            st.error("Введи имя!" if ob_lang == "Русский" else "Enter name!")
+        col1, col2, col3 = st.columns([1, 2, 1])
+        with col2:
+            st.write("### 🎯 Что это?")
+            st.write(
+                "Твой личный финансовый симулятор. Узнай, как накопить на мечту, прокачай уровень и обгони друзей.")
+            st.write("### 📈 Почему это круто?")
+            st.write(
+                "- Считает срок накопления с учетом инфляции\n- Учит финансовой грамотности\n- Игровая механика и рейтинги")
+            st.write("---")
+
+            if st.button("Начать бесплатно 🚀", use_container_width=True, type="primary"):
+                st.session_state.show_onboarding = True
+                st.rerun()
+    else:
+        # --- ЭКРАН ВВОДА ИМЕНИ ---
+        st.title("Давай познакомимся!")
+        st.write("Осталось сделать последний шаг.")
+
+        ob_lang = st.radio("Язык / Language", ["Русский", "English"], horizontal=True)
+
+        new_name = st.text_input("Введи своё имя:" if ob_lang == "Русский" else "Enter your name:")
+
+        col_btn1, col_btn2 = st.columns(2)
+        with col_btn1:
+            if st.button("Начать путь 🚀" if ob_lang == "Русский" else "Start 🚀", use_container_width=True):
+                if new_name.strip():
+                    create_user(new_name.strip())
+                    localS.setItem("questalism_user", new_name.strip(), key="save_user_1")
+                    localS.setItem("questalism_lang", ob_lang, key="save_lang_1")
+                    st.rerun()
+                else:
+                    st.error("Введи имя!" if ob_lang == "Русский" else "Enter name!")
+        with col_btn2:
+            if st.button("⬅️ Назад", use_container_width=True):
+                st.session_state.show_onboarding = False
+                st.rerun()
+
     st.stop()
 
 # Данные
@@ -508,6 +562,7 @@ streak, last_login, xp, crystals, last_xp_date, current_theme, quest_calc, quest
     user_name)
 
 st.set_page_config(page_title="Questalism", page_icon="💰", layout="wide")
+
 # --- ДИЗАЙН ---
 if current_theme == "neon":
     bg_css = "linear-gradient(135deg, #0f0c29 0%, #302b63 50%, #24243e 100%)"
@@ -526,7 +581,20 @@ else:
     btn_color = "#6c5ce7"
 
 text_color = "#000000" if current_theme == "light" else "#ffffff"
-
+# --- GOOGLE ANALYTICS ---
+# Вставляем скрипт только на сервере (на Render), чтобы не засорять статистику локальными запусками
+if "localhost" not in st.context.headers.get("Host", ""):
+    ga_id = "G-TXX82GHF78" # Твой ID
+    ga_script = f"""
+        <script async src="https://www.googletagmanager.com/gtag/js?id={ga_id}"></script>
+        <script>
+            window.dataLayer = window.dataLayer || [];
+            function gtag(){{dataLayer.push(arguments);}}
+            gtag('js', new Date());
+            gtag('config', '{ga_id}');
+        </script>
+    """
+    components.html(ga_script, height=0, width=0)
 st.markdown(
     f"""
     <style>
@@ -561,6 +629,8 @@ st.markdown(
     .ach-hint {{ font-size: 12px; color: gray; margin-top: 5px; }}
     .league-card {{ background: rgba(128,128,128,0.15); border-radius: 12px; padding: 15px; text-align: center; border: 2px solid rgba(128,128,128,0.3); color: {text_color}; margin-bottom: 10px; }}
     .league-card-current {{ border: 2px solid #ffd700; background: rgba(255,215,0,0.1); }}
+    .challenge-box {{ background: linear-gradient(135deg, #ff9a9e 0%, #fecfef 99%, #fecfef 100%); padding: 15px; border-radius: 10px; color: #333 !important; margin-top: 20px; margin-bottom: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }}
+    .challenge-box b {{ color: #000 !important; }}
     </style>
     """,
     unsafe_allow_html=True
@@ -592,6 +662,7 @@ with nav5:
     if st.button(t["nav_knowledge"], use_container_width=True): st.session_state.page = "knowledge"
 with nav6:
     if st.button(t["nav_dictionary"], use_container_width=True): st.session_state.page = "dictionary"
+
 # ==========================================
 # СТРАНИЦА 0: ГЛАВНАЯ
 # ==========================================
@@ -628,23 +699,29 @@ if st.session_state.page == "home":
                 st.markdown(f'<div class="{ach_class}">{icon}</div>', unsafe_allow_html=True)
         st.markdown(f'<div class="ach-hint">{t["achievements_earned"]}</div>', unsafe_allow_html=True)
 
-        if streak >= 7:
-            if chest_claimed == 0:
-                st.success(t["chest_title"])
-                if st.button(t["chest_claim_btn"], key="claim_chest_btn"):
-                    claim_chest(user_name)
-                    st.balloons()
-                    st.rerun()
-            else:
-                st.info(t["chest_claimed_msg"])
+        # --- ЕЖЕДНЕВНЫЙ ЧЕЛЛЕНДЖ ---
+        today_str = date.today().isoformat()
+        conn = sqlite3.connect('questalism.db')
+        c = conn.cursor()
+        c.execute("SELECT last_challenge_date FROM users WHERE name = ?", (user_name,))
+        last_challenge = c.fetchone()[0]
+        conn.close()
+
+        st.write("---")
+        st.markdown(f"""
+        <div class="challenge-box">
+            <h3>🔥 {t['challenge_title']}</h3>
+            <p>{t['challenge_desc']}</p>
+        </div>
+        """, unsafe_allow_html=True)
+
+        if last_challenge != today_str:
+            if st.button(t["challenge_btn"], key="claim_challenge", use_container_width=True):
+                claim_daily_challenge(user_name)
+                st.balloons()
+                st.rerun()
         else:
-            st.markdown(f"""
-            <div class="chest-box">
-                <b>{t['chest_title']}</b><br>
-                {t['chest_desc']}<br>
-                <small>Стрик: {streak} / 7</small>
-            </div>
-            """, unsafe_allow_html=True)
+            st.success(t["challenge_done"])
 
     with col_daily:
         st.subheader(t["quest_map"])
@@ -673,12 +750,17 @@ if st.session_state.page == "home":
             st.markdown(f'<div class="quest-step quest-step-done">✅ {t["q_step4"]}</div>', unsafe_allow_html=True)
 
     st.write("---")
+    # Кнопка приватности
+    if st.button(t["privacy_btn"], use_container_width=True):
+        st.session_state.page = "privacy"
+        st.rerun()
+
     if st.button(t["btn_next_game"], use_container_width=True):
         st.session_state.page = "game"
         st.rerun()
 
 # ==========================================
-# СТРАНИЦА 2: ЛИГА (С ПАНЕЛЬЮ ЛИГ СВЕРХУ)
+# СТРАНИЦА 2: ЛИГА (УПРОЩЕННАЯ)
 # ==========================================
 elif st.session_state.page == "league":
     st.title(t["league_title"])
@@ -686,71 +768,11 @@ elif st.session_state.page == "league":
 
     all_players = get_leaderboard()
 
-    bronze = [p for p in all_players if p[1] < 100]
-    silver = [p for p in all_players if 100 <= p[1] < 300]
-    gold = [p for p in all_players if p[1] >= 300]
-
-    if xp < 100:
-        current_league_key = "bronze"
-    elif xp < 300:
-        current_league_key = "silver"
-    else:
-        current_league_key = "gold"
-
-    st.subheader(t["league_panel_title"])
-    league_defs = [
-        ("bronze", t["league_bronze"], t["league_range"].format(min=0, max=100), bronze),
-        ("silver", t["league_silver"], t["league_range"].format(min=100, max=300), silver),
-        ("gold", t["league_gold"], t["league_range_max"].format(min=300), gold),
-    ]
-
-    if "view_league" not in st.session_state:
-        st.session_state.view_league = current_league_key
-
-    lc1, lc2, lc3 = st.columns(3)
-    league_cols = [lc1, lc2, lc3]
-    for i, (key, name, rng, plist) in enumerate(league_defs):
-        with league_cols[i]:
-            is_current = (key == current_league_key)
-            card_class = "league-card league-card-current" if is_current else "league-card"
-            st.markdown(f"""
-            <div class="{card_class}">
-                <h3 style="margin:0;">{name}</h3>
-                <p style="margin:5px 0;">{rng}</p>
-                <small>{t['league_players'].format(n=len(plist))}</small>
-            </div>
-            """, unsafe_allow_html=True)
-            if st.button(t["league_show"], key=f"show_league_{key}", use_container_width=True):
-                st.session_state.view_league = key
-                st.rerun()
-
-    view_key = st.session_state.view_league
-    league_map = {"bronze": bronze, "silver": silver, "gold": gold}
-    league_name_map = {"bronze": t["league_bronze"], "silver": t["league_silver"], "gold": t["league_gold"]}
-    view_list = league_map[view_key]
-
     st.write("---")
-    if view_key == current_league_key:
-        st.subheader(f"{t['league_current']}: {league_name_map[view_key]}")
-    else:
-        st.subheader(league_name_map[view_key])
+    for rank, (name, p_xp, p_avatar) in enumerate(all_players, start=1):
+        if name == user_name:
+            my_rank = rank
 
-    player_names = [p[0] for p in view_list if p[0] != user_name]
-    if player_names:
-        st.write(f"**{t['view_profile']}**")
-        selected_player = st.selectbox("", player_names, label_visibility="collapsed", key=f"sb_{view_key}")
-        if selected_player:
-            p_data = next((p for p in view_list if p[0] == selected_player), None)
-            if p_data:
-                p_stats = get_user_stats(p_data[0])
-                if p_stats:
-                    p_streak, _, p_xp, p_crystals, _, _, _, _, _, _, p_max_streak, p_max_level, p_avatar, _ = p_stats
-                    st.info(
-                        f"**{selected_player}** {p_avatar} | 🔥 {p_streak} {t['days']} | 💎 {p_crystals} | ⭐ {p_xp} XP | 🏆 Рекорд: {p_max_streak} дней")
-
-    st.write("---")
-
-    for rank, (name, p_xp, p_avatar) in enumerate(view_list, start=1):
         row_class = "league-me" if name == user_name else ""
         medal = "🥇" if rank == 1 else "🥈" if rank == 2 else "🥉" if rank == 3 else f"{rank}."
 
@@ -763,25 +785,19 @@ elif st.session_state.page == "league":
 
     st.write("---")
 
-    my_own_list = league_map[current_league_key]
-    my_own_rank = 1
-    for rank, (name, p_xp, p_avatar) in enumerate(my_own_list, start=1):
-        if name == user_name:
-            my_own_rank = rank
-            break
+    if 'my_rank' not in locals():
+        my_rank = len(all_players)
 
-    league_share_text = f"Я на {my_own_rank} месте в Лиге Questalism! Попробуй обыграть меня: questalism-llhu.onrender.com"
-    if st.button(t["share_league_btn"], use_container_width=True):
-        try:
-            pyperclip.copy(league_share_text)
-            st.success(t["copied"])
-        except:
-            st.error("Не удалось скопировать.")
+    league_share_text = f"Я на {my_rank} месте в Рейтинге Questalism! Попробуй обыграть меня: questalism.onrender.com"
+
+    st.write(t["share_league_btn"])
+    st.code(league_share_text, language="text")
 
     st.write("---")
     if st.button(t["btn_next_shop"], use_container_width=True):
         st.session_state.page = "shop"
         st.rerun()
+
 # ==========================================
 # СТРАНИЦА 1: ИГРА (КВЕСТ)
 # ==========================================
@@ -793,7 +809,6 @@ elif st.session_state.page == "game":
     if "extra" not in st.session_state: st.session_state.extra = 0
     if "hide_numbers" not in st.session_state: st.session_state.hide_numbers = False
 
-    # Кнопка скрыть/показать цифры
     col_hide1, col_hide2 = st.columns([3, 1])
     with col_hide2:
         if st.button(t["hide_btn"] if not st.session_state.hide_numbers else t["show_btn"], use_container_width=True):
@@ -961,8 +976,10 @@ elif st.session_state.page == "game":
 
         st.header(t["quest_levels"])
 
+
         def milestone_status(percentage):
             return t["milestone_done"] if progress >= percentage else t["milestone_wait"]
+
 
         st.markdown(
             f'<div class="quest-level"><b>{t["milestone_10"]}</b> ({st.session_state.target * 0.1:,.0f} {symbol_display}) — {milestone_status(0.1)}</div>',
@@ -980,7 +997,6 @@ elif st.session_state.page == "game":
             f'<div class="quest-level"><b>{t["milestone_100"]}</b> ({st.session_state.target:,.0f} {symbol_display}) — {milestone_status(1.0)}</div>',
             unsafe_allow_html=True)
 
-        # --- ПОЛНЫЙ СПИСОК АЧИВОК ---
         st.header(t["achievements"])
         ach_conditions = [
             (progress > 0.01, t["ach1"]),
@@ -1005,7 +1021,6 @@ elif st.session_state.page == "game":
 
         st.write("---")
 
-        # --- КАЛЬКУЛЯТОР СЛОЖНОГО ПРОЦЕНТА ---
         st.subheader(t["compound_title"])
         st.write(t["compound_desc"])
         cc1, cc2 = st.columns(2)
@@ -1054,14 +1069,7 @@ elif st.session_state.page == "game":
 
         st.write(t["ad_text"])
         share_msg = t["share_text"].format(goal=st.session_state.goal, months=f"{months:.0f}")
-        st.text_area("Текст для копирования", value=share_msg, height=100, label_visibility="collapsed")
-
-        if st.button(t["copy_btn"], use_container_width=True):
-            try:
-                pyperclip.copy(share_msg)
-                st.success(t["copied"])
-            except:
-                st.error("Не удалось скопировать.")
+        st.code(share_msg, language="text")
 
         if shared == 1:
             st.success(t["share_reward_done"])
@@ -1170,7 +1178,7 @@ elif st.session_state.page == "shop":
         st.rerun()
 
 # ==========================================
-# СТРАНИЦА 4: БАЗА ЗНАНИЙ (только теория)
+# СТРАНИЦА 4: БАЗА ЗНАНИЙ
 # ==========================================
 elif st.session_state.page == "knowledge":
     if "current_tip" not in st.session_state:
@@ -1223,7 +1231,7 @@ elif st.session_state.page == "knowledge":
         st.rerun()
 
 # ==========================================
-# СТРАНИЦА 5: СЛОВАРЬ (ФИНАЛ)
+# СТРАНИЦА 5: СЛОВАРЬ
 # ==========================================
 elif st.session_state.page == "dictionary":
     st.title(t["dict_title"])
@@ -1237,6 +1245,20 @@ elif st.session_state.page == "dictionary":
     st.write("---")
     st.success(t["wish"])
 
+    if st.button(t["btn_next_home"], use_container_width=True):
+        st.session_state.page = "home"
+        st.rerun()
+
+    st.caption(t["made_with_love"])
+
+# ==========================================
+# СТРАНИЦА 6: КОНФИДЕНЦИАЛЬНОСТЬ
+# ==========================================
+elif st.session_state.page == "privacy":
+    st.title(t["privacy_title"])
+    st.markdown(t["privacy_text"])
+
+    st.write("---")
     if st.button(t["btn_next_home"], use_container_width=True):
         st.session_state.page = "home"
         st.rerun()
