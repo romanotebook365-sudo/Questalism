@@ -6,7 +6,7 @@ import sqlite3
 from datetime import date, timedelta
 from streamlit_local_storage import LocalStorage
 
-
+# f
 # --- НАСТРОЙКА БАЗЫ ДАННЫХ ---
 def init_db():
     conn = sqlite3.connect('questalism.db')
