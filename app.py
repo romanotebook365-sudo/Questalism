@@ -75,7 +75,14 @@ def buy_avatar(name, avatar_emoji, cost):
 def update_streak_and_xp(name):
     with engine.connect() as conn:
         user = conn.execute(text("SELECT streak, last_login, xp, level, max_streak, max_level FROM users WHERE name = :name"), {"name": name}).fetchone()
-        streak, last_login, xp, current_level, max_streak, max_level = user
+        
+        # Защита от пустых значений (None)
+        streak = user[0] if user[0] is not None else 0
+        last_login = user[1] if user[1] is not None else ""
+        xp = user[2] if user[2] is not None else 0
+        current_level = user[3] if user[3] is not None else 1
+        max_streak = user[4] if user[4] is not None else 0
+        max_level = user[5] if user[5] is not None else 1
 
         now = date.today()
         if last_login:
