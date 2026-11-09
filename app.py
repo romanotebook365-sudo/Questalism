@@ -20,7 +20,7 @@ if DB_URL.startswith("postgres://"):
 engine = create_engine(DB_URL)
 
 def init_db():
-    with engine.connect() as conn:
+    with engine.begin() as conn:
         conn.execute(text('''CREATE TABLE IF NOT EXISTS users
                      (name TEXT PRIMARY KEY, streak INTEGER, last_login TEXT, xp INTEGER, crystals INTEGER, 
                       last_xp_date TEXT, theme TEXT, quest_calc INTEGER, quest_read INTEGER, level INTEGER, shared INTEGER,
@@ -36,7 +36,6 @@ def init_db():
             for bot_name, bot_xp, bot_avatar in bots:
                 conn.execute(text("INSERT INTO users (name, avatar) VALUES (:name, :avatar) ON CONFLICT DO NOTHING"), {"name": bot_name, "avatar": bot_avatar})
                 conn.execute(text("INSERT INTO leaderboard (name, xp) VALUES (:name, :xp) ON CONFLICT DO NOTHING"), {"name": bot_name, "xp": bot_xp})
-        conn.commit()
 
 def get_user_stats(name):
     with engine.connect() as conn:
@@ -44,39 +43,33 @@ def get_user_stats(name):
         return result
 
 def create_user(name):
-    with engine.connect() as conn:
+    with engine.begin() as conn:
         conn.execute(text("INSERT INTO users (name, streak, last_login, xp, crystals, last_xp_date, theme, quest_calc, quest_read, level, shared, max_streak, max_level, avatar, chest_claimed, last_bonus_date, last_challenge_date) VALUES (:name, 0, '', 0, 0, '', 'default', 0, 0, 1, 0, 0, 1, '🦉', 0, '', '') ON CONFLICT DO NOTHING"), {"name": name})
         conn.execute(text("INSERT INTO leaderboard (name, xp) VALUES (:name, 0) ON CONFLICT DO NOTHING"), {"name": name})
-        conn.commit()
 
 def save_goal_to_db(user_name, goal_name, target, current):
-    with engine.connect() as conn:
+    with engine.begin() as conn:
         conn.execute(text("INSERT INTO saved_goals (user_name, goal_name, target_amount, saved_amount) VALUES (:u, :g, :t, :c)"), {"u": user_name, "g": goal_name, "t": target, "c": current})
-        conn.commit()
 
 def get_saved_goals(user_name):
     with engine.connect() as conn:
         return conn.execute(text("SELECT id, goal_name, target_amount, saved_amount FROM saved_goals WHERE user_name = :u"), {"u": user_name}).fetchall()
 
 def delete_goal(goal_id):
-    with engine.connect() as conn:
+    with engine.begin() as conn:
         conn.execute(text("DELETE FROM saved_goals WHERE id = :id"), {"id": goal_id})
-        conn.commit()
 
 def buy_avatar(name, avatar_emoji, cost):
-    with engine.connect() as conn:
+    with engine.begin() as conn:
         crystals = conn.execute(text("SELECT crystals FROM users WHERE name = :name"), {"name": name}).fetchone()[0]
         if crystals >= cost:
             conn.execute(text("UPDATE users SET crystals = crystals - :cost, avatar = :av WHERE name = :name"), {"cost": cost, "av": avatar_emoji, "name": name})
-            conn.commit()
             return True
         return False
 
 def update_streak_and_xp(name):
-    with engine.connect() as conn:
+    with engine.begin() as conn:
         user = conn.execute(text("SELECT streak, last_login, xp, level, max_streak, max_level FROM users WHERE name = :name"), {"name": name}).fetchone()
-        
-        # Защита от пустых значений (None)
         streak = user[0] if user[0] is not None else 0
         last_login = user[1] if user[1] is not None else ""
         xp = user[2] if user[2] is not None else 0
@@ -114,36 +107,31 @@ def update_streak_and_xp(name):
         conn.execute(text("UPDATE users SET streak = :st, last_login = :ll, xp = :xp, level = :lv, max_streak = :ms, max_level = :ml WHERE name = :name"), 
                      {"st": streak, "ll": today_str, "xp": xp, "lv": new_level, "ms": max_streak, "ml": max_level, "name": name})
         conn.execute(text("UPDATE leaderboard SET xp = :xp WHERE name = :name"), {"xp": xp, "name": name})
-        conn.commit()
 
 def claim_daily_challenge(name):
-    with engine.connect() as conn:
+    with engine.begin() as conn:
         today_str = date.today().isoformat()
         conn.execute(text("UPDATE users SET xp = xp + 30, crystals = crystals + 30, last_challenge_date = :d WHERE name = :name"), {"d": today_str, "name": name})
-        conn.commit()
         new_xp = conn.execute(text("SELECT xp FROM users WHERE name = :name"), {"name": name}).fetchone()[0]
         conn.execute(text("UPDATE leaderboard SET xp = :xp WHERE name = :name"), {"xp": new_xp, "name": name})
-        conn.commit()
 
 def complete_quest(name, quest_name, reward_xp, reward_crystals):
-    with engine.connect() as conn:
+    with engine.begin() as conn:
         if quest_name == "calc":
             conn.execute(text("UPDATE users SET quest_calc = 1, xp = xp + :rx, crystals = crystals + :rc WHERE name = :name"), {"rx": reward_xp, "rc": reward_crystals, "name": name})
         elif quest_name == "read":
             conn.execute(text("UPDATE users SET quest_read = 1, xp = xp + :rx, crystals = crystals + :rc WHERE name = :name"), {"rx": reward_xp, "rc": reward_crystals, "name": name})
         elif quest_name == "share":
             conn.execute(text("UPDATE users SET shared = 1, crystals = crystals + :rc WHERE name = :name"), {"rc": reward_crystals, "name": name})
-        conn.commit()
+        
         new_xp = conn.execute(text("SELECT xp FROM users WHERE name = :name"), {"name": name}).fetchone()[0]
         conn.execute(text("UPDATE leaderboard SET xp = :xp WHERE name = :name"), {"xp": new_xp, "name": name})
-        conn.commit()
 
 def buy_theme(name, theme_id, cost):
-    with engine.connect() as conn:
+    with engine.begin() as conn:
         crystals = conn.execute(text("SELECT crystals FROM users WHERE name = :name"), {"name": name}).fetchone()[0]
         if crystals >= cost:
             conn.execute(text("UPDATE users SET crystals = crystals - :cost, theme = :theme WHERE name = :name"), {"cost": cost, "theme": theme_id, "name": name})
-            conn.commit()
             return True
         return False
 
@@ -705,27 +693,21 @@ if st.session_state.page == "home":
         st.subheader(t["quest_map"])
 
         if quest_calc == 0:
-            st.markdown(f'<div class="quest-step">1️⃣ {t["q_step1"]}</div>', unsafe_allow_html=True)
-            st.markdown(f'<div class="quest-line">⬇️</div>', unsafe_allow_html=True)
-            st.markdown(f'<div class="quest-step">2️⃣ {t["q_step2"]}</div>', unsafe_allow_html=True)
+            st.info(f"1️⃣ {t['q_step1']}")
+            st.info(f"2️⃣ {t['q_step2']}")
         else:
-            st.markdown(f'<div class="quest-step quest-step-done">✅ {t["q_step1"]}</div>', unsafe_allow_html=True)
-            st.markdown(f'<div class="quest-line">⬇️</div>', unsafe_allow_html=True)
-            st.markdown(f'<div class="quest-step quest-step-done">✅ {t["q_step2"]}</div>', unsafe_allow_html=True)
-
-        st.markdown(f'<div class="quest-line">⬇️</div>', unsafe_allow_html=True)
+            st.success(f"✅ {t['q_step1']}")
+            st.success(f"✅ {t['q_step2']}")
 
         if quest_read == 0:
-            st.markdown(f'<div class="quest-step">3️⃣ {t["q_step3"]}</div>', unsafe_allow_html=True)
+            st.info(f"3️⃣ {t['q_step3']}")
         else:
-            st.markdown(f'<div class="quest-step quest-step-done">✅ {t["q_step3"]}</div>', unsafe_allow_html=True)
-
-        st.markdown(f'<div class="quest-line">⬇️</div>', unsafe_allow_html=True)
+            st.success(f"✅ {t['q_step3']}")
 
         if shared == 0:
-            st.markdown(f'<div class="quest-step">4️⃣ {t["q_step4"]}</div>', unsafe_allow_html=True)
+            st.info(f"4️⃣ {t['q_step4']}")
         else:
-            st.markdown(f'<div class="quest-step quest-step-done">✅ {t["q_step4"]}</div>', unsafe_allow_html=True)
+            st.success(f"✅ {t['q_step4']}")
 
     st.write("---")
     if st.button(t["privacy_btn"], use_container_width=True):
@@ -769,6 +751,14 @@ elif st.session_state.page == "league":
     
     st.write(t["share_league_btn"])
     st.code(league_share_text, language="text")
+
+    if shared == 1:
+        st.success(t["share_reward_done"])
+    else:
+        if st.button(t["btn_share_reward"], use_container_width=True):
+            complete_quest(user_name, "share", 0, 20)
+            st.success("+20 💎")
+            st.rerun()
 
     st.write("---")
     if st.button(t["btn_next_shop"], use_container_width=True):
