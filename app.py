@@ -19,70 +19,114 @@ if DB_URL.startswith("postgres://"):
 
 engine = create_engine(DB_URL)
 
+
+@st.cache_resource
 def init_db():
     with engine.begin() as conn:
         conn.execute(text('''CREATE TABLE IF NOT EXISTS users
                      (name TEXT PRIMARY KEY, streak INTEGER, last_login TEXT, xp INTEGER, crystals INTEGER, 
                       last_xp_date TEXT, theme TEXT, quest_calc INTEGER, quest_read INTEGER, level INTEGER, shared INTEGER,
-                      max_streak INTEGER, max_level INTEGER, avatar TEXT, chest_claimed INTEGER, last_bonus_date TEXT, last_challenge_date TEXT)'''))
+                      max_streak INTEGER, max_level INTEGER, avatar TEXT, chest_claimed INTEGER, last_bonus_date TEXT, last_challenge_date TEXT, feedback TEXT, freeze_count INTEGER DEFAULT 0)'''))
         conn.execute(text('''CREATE TABLE IF NOT EXISTS leaderboard
                      (name TEXT PRIMARY KEY, xp INTEGER)'''))
         conn.execute(text('''CREATE TABLE IF NOT EXISTS saved_goals
                      (id SERIAL PRIMARY KEY, user_name TEXT, goal_name TEXT, target_amount REAL, saved_amount REAL)'''))
-        
-        result = conn.execute(text("SELECT COUNT(*) FROM leaderboard")).fetchone()
-        if result[0] == 0:
-            bots = [("Alex", 120, "🐱"), ("Max", 85, "🐶"), ("Sophie", 150, "🦊"), ("Ivan", 40, "🐻"), ("Kate", 200, "🐼")]
-            for bot_name, bot_xp, bot_avatar in bots:
-                conn.execute(text("INSERT INTO users (name, avatar) VALUES (:name, :avatar) ON CONFLICT DO NOTHING"), {"name": bot_name, "avatar": bot_avatar})
-                conn.execute(text("INSERT INTO leaderboard (name, xp) VALUES (:name, :xp) ON CONFLICT DO NOTHING"), {"name": bot_name, "xp": bot_xp})
 
+        conn.execute(text("DELETE FROM leaderboard WHERE name IN ('Alex', 'Max', 'Sophie', 'Ivan', 'Kate')"))
+        conn.execute(text("DELETE FROM users WHERE name IN ('Alex', 'Max', 'Sophie', 'Ivan', 'Kate')"))
+
+
+init_db()
+
+
+# --- ФУНКЦИИ С КЭШИРОВАНИЕМ ---
+@st.cache_data(ttl=60)
 def get_user_stats(name):
     with engine.connect() as conn:
-        result = conn.execute(text("SELECT streak, last_login, xp, crystals, last_xp_date, theme, quest_calc, quest_read, level, shared, max_streak, max_level, avatar, chest_claimed FROM users WHERE name = :name"), {"name": name}).fetchone()
+        result = conn.execute(text(
+            "SELECT streak, last_login, xp, crystals, last_xp_date, theme, quest_calc, quest_read, level, shared, max_streak, max_level, avatar, chest_claimed, freeze_count FROM users WHERE name = :name"),
+                              {"name": name}).fetchone()
         return result
+
 
 def create_user(name):
     with engine.begin() as conn:
-        conn.execute(text("INSERT INTO users (name, streak, last_login, xp, crystals, last_xp_date, theme, quest_calc, quest_read, level, shared, max_streak, max_level, avatar, chest_claimed, last_bonus_date, last_challenge_date) VALUES (:name, 0, '', 0, 0, '', 'default', 0, 0, 1, 0, 0, 1, '🦉', 0, '', '') ON CONFLICT DO NOTHING"), {"name": name})
-        conn.execute(text("INSERT INTO leaderboard (name, xp) VALUES (:name, 0) ON CONFLICT DO NOTHING"), {"name": name})
+        conn.execute(text(
+            "INSERT INTO users (name, streak, last_login, xp, crystals, last_xp_date, theme, quest_calc, quest_read, level, shared, max_streak, max_level, avatar, chest_claimed, last_bonus_date, last_challenge_date, feedback, freeze_count) VALUES (:name, 0, '', 0, 0, '', 'default', 0, 0, 1, 0, 0, 1, '🦉', 0, '', '', '', 0) ON CONFLICT DO NOTHING"),
+                     {"name": name})
+        conn.execute(text("INSERT INTO leaderboard (name, xp) VALUES (:name, 0) ON CONFLICT DO NOTHING"),
+                     {"name": name})
+    st.cache_data.clear()
+
 
 def save_goal_to_db(user_name, goal_name, target, current):
     with engine.begin() as conn:
-        conn.execute(text("INSERT INTO saved_goals (user_name, goal_name, target_amount, saved_amount) VALUES (:u, :g, :t, :c)"), {"u": user_name, "g": goal_name, "t": target, "c": current})
+        conn.execute(
+            text("INSERT INTO saved_goals (user_name, goal_name, target_amount, saved_amount) VALUES (:u, :g, :t, :c)"),
+            {"u": user_name, "g": goal_name, "t": target, "c": current})
+
 
 def get_saved_goals(user_name):
     with engine.connect() as conn:
-        return conn.execute(text("SELECT id, goal_name, target_amount, saved_amount FROM saved_goals WHERE user_name = :u"), {"u": user_name}).fetchall()
+        return conn.execute(
+            text("SELECT id, goal_name, target_amount, saved_amount FROM saved_goals WHERE user_name = :u"),
+            {"u": user_name}).fetchall()
+
 
 def delete_goal(goal_id):
     with engine.begin() as conn:
         conn.execute(text("DELETE FROM saved_goals WHERE id = :id"), {"id": goal_id})
 
+
 def buy_avatar(name, avatar_emoji, cost):
     with engine.begin() as conn:
         crystals = conn.execute(text("SELECT crystals FROM users WHERE name = :name"), {"name": name}).fetchone()[0]
         if crystals >= cost:
-            conn.execute(text("UPDATE users SET crystals = crystals - :cost, avatar = :av WHERE name = :name"), {"cost": cost, "av": avatar_emoji, "name": name})
+            conn.execute(text("UPDATE users SET crystals = crystals - :cost, avatar = :av WHERE name = :name"),
+                         {"cost": cost, "av": avatar_emoji, "name": name})
+            st.cache_data.clear()
             return True
         return False
 
+
+def buy_freeze(name):
+    cost = 50
+    with engine.begin() as conn:
+        crystals = conn.execute(text("SELECT crystals FROM users WHERE name = :name"), {"name": name}).fetchone()[0]
+        if crystals >= cost:
+            conn.execute(text(
+                "UPDATE users SET crystals = crystals - :cost, freeze_count = freeze_count + 1 WHERE name = :name"),
+                         {"cost": cost, "name": name})
+            st.cache_data.clear()
+            return True
+        return False
+
+
 def update_streak_and_xp(name):
     with engine.begin() as conn:
-        user = conn.execute(text("SELECT streak, last_login, xp, level, max_streak, max_level FROM users WHERE name = :name"), {"name": name}).fetchone()
+        user = conn.execute(text(
+            "SELECT streak, last_login, xp, level, max_streak, max_level, freeze_count FROM users WHERE name = :name"),
+                            {"name": name}).fetchone()
         streak = user[0] if user[0] is not None else 0
         last_login = user[1] if user[1] is not None else ""
         xp = user[2] if user[2] is not None else 0
         current_level = user[3] if user[3] is not None else 1
         max_streak = user[4] if user[4] is not None else 0
         max_level = user[5] if user[5] is not None else 1
+        freeze = user[6] if user[6] is not None else 0
 
         now = date.today()
         if last_login:
             last_date = date.fromisoformat(last_login)
             delta = (now - last_date).days
-            if delta == 1: streak += 1
-            elif delta > 1: streak = 1
+            if delta == 1:
+                streak += 1
+            elif delta > 1:
+                if freeze > 0:
+                    freeze -= 1
+                    st.toast("❄️ Твой стрик заморожен! Потрачен 1 щит.", icon="🧊")
+                else:
+                    streak = 1
         else:
             streak = 1
 
@@ -104,41 +148,67 @@ def update_streak_and_xp(name):
         if streak > max_streak: max_streak = streak
         if new_level > max_level: max_level = new_level
 
-        conn.execute(text("UPDATE users SET streak = :st, last_login = :ll, xp = :xp, level = :lv, max_streak = :ms, max_level = :ml WHERE name = :name"), 
-                     {"st": streak, "ll": today_str, "xp": xp, "lv": new_level, "ms": max_streak, "ml": max_level, "name": name})
+        conn.execute(text(
+            "UPDATE users SET streak = :st, last_login = :ll, xp = :xp, level = :lv, max_streak = :ms, max_level = :ml, freeze_count = :fc WHERE name = :name"),
+                     {"st": streak, "ll": today_str, "xp": xp, "lv": new_level, "ms": max_streak, "ml": max_level,
+                      "fc": freeze, "name": name})
         conn.execute(text("UPDATE leaderboard SET xp = :xp WHERE name = :name"), {"xp": xp, "name": name})
+
 
 def claim_daily_challenge(name):
     with engine.begin() as conn:
         today_str = date.today().isoformat()
-        conn.execute(text("UPDATE users SET xp = xp + 30, crystals = crystals + 30, last_challenge_date = :d WHERE name = :name"), {"d": today_str, "name": name})
+        conn.execute(text(
+            "UPDATE users SET xp = xp + 30, crystals = crystals + 30, last_challenge_date = :d WHERE name = :name"),
+                     {"d": today_str, "name": name})
         new_xp = conn.execute(text("SELECT xp FROM users WHERE name = :name"), {"name": name}).fetchone()[0]
         conn.execute(text("UPDATE leaderboard SET xp = :xp WHERE name = :name"), {"xp": new_xp, "name": name})
+    st.cache_data.clear()
+
 
 def complete_quest(name, quest_name, reward_xp, reward_crystals):
     with engine.begin() as conn:
         if quest_name == "calc":
-            conn.execute(text("UPDATE users SET quest_calc = 1, xp = xp + :rx, crystals = crystals + :rc WHERE name = :name"), {"rx": reward_xp, "rc": reward_crystals, "name": name})
+            conn.execute(
+                text("UPDATE users SET quest_calc = 1, xp = xp + :rx, crystals = crystals + :rc WHERE name = :name"),
+                {"rx": reward_xp, "rc": reward_crystals, "name": name})
         elif quest_name == "read":
-            conn.execute(text("UPDATE users SET quest_read = 1, xp = xp + :rx, crystals = crystals + :rc WHERE name = :name"), {"rx": reward_xp, "rc": reward_crystals, "name": name})
+            conn.execute(
+                text("UPDATE users SET quest_read = 1, xp = xp + :rx, crystals = crystals + :rc WHERE name = :name"),
+                {"rx": reward_xp, "rc": reward_crystals, "name": name})
         elif quest_name == "share":
-            conn.execute(text("UPDATE users SET shared = 1, crystals = crystals + :rc WHERE name = :name"), {"rc": reward_crystals, "name": name})
-        
+            conn.execute(text("UPDATE users SET shared = 1, crystals = crystals + :rc WHERE name = :name"),
+                         {"rc": reward_crystals, "name": name})
+
         new_xp = conn.execute(text("SELECT xp FROM users WHERE name = :name"), {"name": name}).fetchone()[0]
         conn.execute(text("UPDATE leaderboard SET xp = :xp WHERE name = :name"), {"xp": new_xp, "name": name})
+    st.cache_data.clear()
+
+
+def save_feedback(name, feedback_text):
+    with engine.begin() as conn:
+        conn.execute(text("UPDATE users SET feedback = :fb WHERE name = :name"), {"fb": feedback_text, "name": name})
+    st.cache_data.clear()
+
 
 def buy_theme(name, theme_id, cost):
     with engine.begin() as conn:
         crystals = conn.execute(text("SELECT crystals FROM users WHERE name = :name"), {"name": name}).fetchone()[0]
         if crystals >= cost:
-            conn.execute(text("UPDATE users SET crystals = crystals - :cost, theme = :theme WHERE name = :name"), {"cost": cost, "theme": theme_id, "name": name})
+            conn.execute(text("UPDATE users SET crystals = crystals - :cost, theme = :theme WHERE name = :name"),
+                         {"cost": cost, "theme": theme_id, "name": name})
+            st.cache_data.clear()
             return True
         return False
 
+
+@st.cache_data(ttl=30)
 def get_leaderboard():
     with engine.connect() as conn:
-        result = conn.execute(text("SELECT leaderboard.name, leaderboard.xp, users.avatar FROM leaderboard LEFT JOIN users ON leaderboard.name = users.name ORDER BY leaderboard.xp DESC")).fetchall()
+        result = conn.execute(text(
+            "SELECT leaderboard.name, leaderboard.xp, users.avatar FROM leaderboard LEFT JOIN users ON leaderboard.name = users.name ORDER BY leaderboard.xp DESC")).fetchall()
         return [(row[0], row[1], row[2] if row[2] else "🦉") for row in result]
+
 
 def calc_compound(principal, monthly, annual_rate, years):
     months = int(years * 12)
@@ -152,7 +222,6 @@ def calc_compound(principal, monthly, annual_rate, years):
     contributed = principal + monthly * months
     return total, contributed, balances
 
-init_db()
 
 # --- СЛОВАРИ ---
 texts = {
@@ -234,7 +303,7 @@ texts = {
         "ad_text": "Скопируй текст ниже и отправь другу:",
         "level_progress": "Прогресс до следующего уровня", "copy_btn": "📋 Скопировать текст",
         "copied": "✅ Скопировано!",
-        "view_profile": "Посмотреть профиль соперника",
+        "view_profile": "Посмотреть профиль",
         "avatar_shop": "🦉 Аватарки", "avatar_desc": "Смени своего совенка!",
         "theme_shop": "🎨 Темы оформления", "theme_desc": "Смени цвета сайта!",
         "quest_map": "🗺️ Твой путь", "q_step1": "Поставить цель", "q_step2": "Рассчитать срок",
@@ -291,7 +360,21 @@ texts = {
         "challenge_title": "🔥 Челлендж дня",
         "challenge_desc": "Отложи сегодня 100 ₽ (или больше) на свою цель. Это формирует привычку!",
         "challenge_btn": "✅ Я отложил 100 ₽ (+30 XP, +30 💎)",
-        "challenge_done": "✅ Ты выполнил челлендж дня! Возвращайся завтра."
+        "challenge_done": "✅ Ты выполнил челлендж дня! Возвращайся завтра.",
+        "feedback_title": "💬 Обратная связь",
+        "feedback_desc": "Насколько тебе удобно пользоваться сайтом? Есть что улучшить?",
+        "feedback_placeholder": "Напиши свои мысли...",
+        "feedback_btn": "Отправить отзыв",
+        "feedback_done": "✅ Спасибо за твой отзыв!",
+        "freeze_shop": "❄️ Заморозка стрика",
+        "freeze_desc": "Сохраняет твой стрик, если ты пропустишь день.",
+        "freeze_buy": "Купить за 50 💎",
+        "freeze_owned": "Щитов куплено: {count}",
+        "freeze_not_enough": "Не хватает кристаллов!",
+        "my_profile": "Твой профиль",
+        "view_profile": "Посмотреть профиль",
+        "close": "Закрыть",
+        "user_achievements": "Ачивки пользователя"
     },
     "English": {
         "title": "💰 Questalism", "subtitle": "Your dream. Your path. Your money.",
@@ -366,7 +449,7 @@ texts = {
         "records_title": "🏅 Personal Records", "rec_streak": "Max Streak", "rec_level": "Max Level",
         "ad_text": "Copy the text below and send it to a friend:",
         "level_progress": "Progress to next level", "copy_btn": "📋 Copy text", "copied": "✅ Copied!",
-        "view_profile": "View rival's profile",
+        "view_profile": "View profile",
         "avatar_shop": "🦉 Avatars", "avatar_desc": "Change your owl!",
         "theme_shop": "🎨 Themes", "theme_desc": "Change site colors!",
         "quest_map": "🗺️ Your Path", "q_step1": "Set a goal", "q_step2": "Calculate term", "q_step3": "Read a tip",
@@ -421,7 +504,21 @@ Play, save, and don't worry about security! 🛡️""",
         "challenge_title": "🔥 Daily Challenge",
         "challenge_desc": "Save 100 ₽ (or more) today for your goal. It builds a habit!",
         "challenge_btn": "✅ I saved 100 ₽ (+30 XP, +30 💎)",
-        "challenge_done": "✅ You completed today's challenge! Come back tomorrow."
+        "challenge_done": "✅ You completed today's challenge! Come back tomorrow.",
+        "feedback_title": "💬 Feedback",
+        "feedback_desc": "How convenient is the site? Anything to improve?",
+        "feedback_placeholder": "Write your thoughts...",
+        "feedback_btn": "Send feedback",
+        "feedback_done": "✅ Thanks for your feedback!",
+        "freeze_shop": "❄️ Streak Freeze",
+        "freeze_desc": "Protects your streak if you miss a day.",
+        "freeze_buy": "Buy for 50 💎",
+        "freeze_owned": "Shields owned: {count}",
+        "freeze_not_enough": "Not enough crystals!",
+        "my_profile": "Your profile",
+        "view_profile": "View profile",
+        "close": "Close",
+        "user_achievements": "User achievements"
     }
 }
 
@@ -448,35 +545,41 @@ if "ob_lang" not in st.session_state:
 
 if not user_name:
     st.set_page_config(page_title="Questalism", page_icon="💰", layout="centered")
-    
+
     st.session_state.ob_lang = st.radio("Язык / Language", ["Русский", "English"], horizontal=True)
     ob_lang = st.session_state.ob_lang
 
     if not st.session_state.show_onboarding:
         if ob_lang == "Русский":
             st.markdown("<h1 style='text-align: center; font-size: 50px;'>💰 Questalism</h1>", unsafe_allow_html=True)
-            st.markdown("<h3 style='text-align: center; color: gray;'>Твоя мечта. Твой путь. Твои деньги.</h3>", unsafe_allow_html=True)
+            st.markdown("<h3 style='text-align: center; color: gray;'>Твоя мечта. Твой путь. Твои деньги.</h3>",
+                        unsafe_allow_html=True)
             st.write("---")
             col1, col2, col3 = st.columns([1, 2, 1])
             with col2:
                 st.write("### 🎯 Что это?")
-                st.write("Твой личный финансовый симулятор. Узнай, как накопить на мечту, прокачай уровень и обгони друзей.")
+                st.write(
+                    "Твой личный финансовый симулятор. Узнай, как накопить на мечту, прокачай уровень и обгони друзей.")
                 st.write("### 📈 Почему это круто?")
-                st.write("- Считает срок накопления с учетом инфляции\n- Учит финансовой грамотности\n- Игровая механика и рейтинги")
+                st.write(
+                    "- Считает срок накопления с учетом инфляции\n- Учит финансовой грамотности\n- Игровая механика и рейтинги")
                 st.write("---")
                 if st.button("Начать бесплатно 🚀", use_container_width=True, type="primary"):
                     st.session_state.show_onboarding = True
                     st.rerun()
         else:
             st.markdown("<h1 style='text-align: center; font-size: 50px;'>💰 Questalism</h1>", unsafe_allow_html=True)
-            st.markdown("<h3 style='text-align: center; color: gray;'>Your dream. Your path. Your money.</h3>", unsafe_allow_html=True)
+            st.markdown("<h3 style='text-align: center; color: gray;'>Your dream. Your path. Your money.</h3>",
+                        unsafe_allow_html=True)
             st.write("---")
             col1, col2, col3 = st.columns([1, 2, 1])
             with col2:
                 st.write("### 🎯 What is it?")
-                st.write("Your personal financial simulator. Learn how to save for a dream, level up, and beat your friends.")
+                st.write(
+                    "Your personal financial simulator. Learn how to save for a dream, level up, and beat your friends.")
                 st.write("### 📈 Why is it cool?")
-                st.write("- Calculates saving time with inflation\n- Teaches financial literacy\n- Game mechanics and ratings")
+                st.write(
+                    "- Calculates saving time with inflation\n- Teaches financial literacy\n- Game mechanics and ratings")
                 st.write("---")
                 if st.button("Start for free 🚀", use_container_width=True, type="primary"):
                     st.session_state.show_onboarding = True
@@ -526,9 +629,10 @@ if stats is None:
     create_user(user_name)
     stats = get_user_stats(user_name)
 
-streak, last_login, xp, crystals, last_xp_date, current_theme, quest_calc, quest_read, level, shared, max_streak, max_level, current_avatar, chest_claimed = stats
+streak, last_login, xp, crystals, last_xp_date, current_theme, quest_calc, quest_read, level, shared, max_streak, max_level, current_avatar, chest_claimed, freeze_count = stats
 update_streak_and_xp(user_name)
-streak, last_login, xp, crystals, last_xp_date, current_theme, quest_calc, quest_read, level, shared, max_streak, max_level, current_avatar, chest_claimed = get_user_stats(user_name)
+streak, last_login, xp, crystals, last_xp_date, current_theme, quest_calc, quest_read, level, shared, max_streak, max_level, current_avatar, chest_claimed, freeze_count = get_user_stats(
+    user_name)
 
 st.set_page_config(page_title="Questalism", page_icon="💰", layout="wide")
 
@@ -601,6 +705,15 @@ st.markdown(
     .league-card-current {{ border: 2px solid #ffd700; background: rgba(255,215,0,0.1); }}
     .challenge-box {{ background: linear-gradient(135deg, #ff9a9e 0%, #fecfef 99%, #fecfef 100%); padding: 15px; border-radius: 10px; color: #333 !important; margin-top: 20px; margin-bottom: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }}
     .challenge-box b {{ color: #000 !important; }}
+
+    /* Стили для активной вкладки */
+    div.stButton > button[kind="primary"] {{
+        background-color: {btn_color} !important;
+        border: 2px solid #ffffff !important;
+        box-shadow: 0 0 10px {btn_color};
+        font-weight: bold;
+        opacity: 1 !important;
+    }}
     </style>
     """,
     unsafe_allow_html=True
@@ -619,19 +732,23 @@ with col_cryst: st.write(f"💎 **{crystals}**")
 
 if "page" not in st.session_state: st.session_state.page = "home"
 
+
+def nav_button(text, page_name, current_page):
+    if page_name == current_page:
+        st.button(text, use_container_width=True, disabled=True, type="primary")
+    else:
+        if st.button(text, use_container_width=True):
+            st.session_state.page = page_name
+            st.rerun()
+
+
 nav1, nav2, nav3, nav4, nav5, nav6 = st.columns(6)
-with nav1:
-    if st.button(t["nav_home"], use_container_width=True): st.session_state.page = "home"
-with nav2:
-    if st.button(t["nav_game"], use_container_width=True): st.session_state.page = "game"
-with nav3:
-    if st.button(t["nav_league"], use_container_width=True): st.session_state.page = "league"
-with nav4:
-    if st.button(t["nav_shop"], use_container_width=True): st.session_state.page = "shop"
-with nav5:
-    if st.button(t["nav_knowledge"], use_container_width=True): st.session_state.page = "knowledge"
-with nav6:
-    if st.button(t["nav_dictionary"], use_container_width=True): st.session_state.page = "dictionary"
+with nav1: nav_button(t["nav_home"], "home", st.session_state.page)
+with nav2: nav_button(t["nav_game"], "game", st.session_state.page)
+with nav3: nav_button(t["nav_league"], "league", st.session_state.page)
+with nav4: nav_button(t["nav_shop"], "shop", st.session_state.page)
+with nav5: nav_button(t["nav_knowledge"], "knowledge", st.session_state.page)
+with nav6: nav_button(t["nav_dictionary"], "dictionary", st.session_state.page)
 
 # ==========================================
 # СТРАНИЦА 0: ГЛАВНАЯ
@@ -647,6 +764,7 @@ if st.session_state.page == "home":
             <p>{t['dash_xp']}: {xp}</p>
             <p>🔥 {t['streak_label']}: {streak} {t['days']}</p>
             <p>💎 {t['crystals_label']}: {crystals}</p>
+            <p>❄️ {t['freeze_shop']}: {freeze_count}</p>
         </div>
         """, unsafe_allow_html=True)
 
@@ -671,7 +789,8 @@ if st.session_state.page == "home":
 
         today_str = date.today().isoformat()
         with engine.connect() as conn:
-            last_challenge = conn.execute(text("SELECT last_challenge_date FROM users WHERE name = :name"), {"name": user_name}).fetchone()[0]
+            last_challenge = conn.execute(text("SELECT last_challenge_date FROM users WHERE name = :name"),
+                                          {"name": user_name}).fetchone()[0]
 
         st.write("---")
         st.markdown(f"""
@@ -731,7 +850,7 @@ elif st.session_state.page == "league":
     for rank, (name, p_xp, p_avatar) in enumerate(all_players, start=1):
         if name == user_name:
             my_rank = rank
-            
+
         row_class = "league-me" if name == user_name else ""
         medal = "🥇" if rank == 1 else "🥈" if rank == 2 else "🥉" if rank == 3 else f"{rank}."
 
@@ -742,13 +861,36 @@ elif st.session_state.page == "league":
         </div>
         """, unsafe_allow_html=True)
 
+        # --- ПРОФИЛЬ СОПЕРНИКА ---
+        if name != user_name:
+            with st.expander(f"{t['view_profile']}: {name}"):
+                p_stats = get_user_stats(name)
+                if p_stats:
+                    p_streak, _, p_xp, p_crystals, _, _, p_q_calc, p_q_read, p_level, p_shared, p_max_streak, p_max_level, p_avatar, _, p_freeze = p_stats
+                    st.write(f"**{p_avatar} {name}**")
+                    st.write(f"🔥 {t['streak_label']}: {p_streak} {t['days']}")
+                    st.write(f"⭐ {t['dash_xp']}: {p_xp}")
+                    st.write(f"💎 {t['crystals_label']}: {p_crystals}")
+                    st.write(f"🛡️ {t['dash_level']}: {p_level}")
+                    st.write(f"❄️ {t['freeze_shop']}: {p_freeze}")
+
+                    st.write(f"**{t['user_achievements']}:**")
+                    ach_icons_display = []
+                    if p_q_calc > 0: ach_icons_display.append("🎯")
+                    if p_crystals >= 1000: ach_icons_display.append("💎")
+                    if p_xp >= 100: ach_icons_display.append("🥇")
+                    if p_streak >= 3: ach_icons_display.append("🔥")
+                    if p_max_streak >= 7: ach_icons_display.append("🏆")
+                    if not ach_icons_display: ach_icons_display.append("Нет ачивок")
+                    st.write(" ".join(ach_icons_display))
+
     st.write("---")
 
     if 'my_rank' not in locals():
         my_rank = len(all_players)
 
     league_share_text = t["share_league_text"].format(rank=my_rank)
-    
+
     st.write(t["share_league_btn"])
     st.code(league_share_text, language="text")
 
@@ -943,8 +1085,10 @@ elif st.session_state.page == "game":
 
         st.header(t["quest_levels"])
 
+
         def milestone_status(percentage):
             return t["milestone_done"] if progress >= percentage else t["milestone_wait"]
+
 
         st.markdown(
             f'<div class="quest-level"><b>{t["milestone_10"]}</b> ({st.session_state.target * 0.1:,.0f} {symbol_display}) — {milestone_status(0.1)}</div>',
@@ -1076,6 +1220,26 @@ elif st.session_state.page == "game":
     st.caption(t["safety_hint"])
 
     st.write("---")
+
+    # --- NPS БЛОК (ПЕРЕНЕСЕН СЮДА) ---
+    st.subheader(t["feedback_title"])
+    st.write(t["feedback_desc"])
+
+    with st.form("feedback_form"):
+        col_f1, col_f2 = st.columns([1, 1])
+        with col_f1:
+            rating = st.radio("Оцени сайт:", ["👍 Отлично", "👎 Есть проблемы"], horizontal=True,
+                              label_visibility="collapsed")
+        with col_f2:
+            fb_text = st.text_input(t["feedback_placeholder"], label_visibility="collapsed")
+
+        submitted = st.form_submit_button(t["feedback_btn"])
+        if submitted:
+            save_feedback(user_name, f"{rating} - {fb_text}")
+            st.success(t["feedback_done"])
+
+    st.write("---")
+
     if st.button(t["btn_next_league"], use_container_width=True):
         st.session_state.page = "league"
         st.rerun()
@@ -1086,6 +1250,20 @@ elif st.session_state.page == "game":
 elif st.session_state.page == "shop":
     st.title(t["shop_title"])
     st.write(t["shop_desc"])
+
+    # --- ЗАМОРОЗКА СТРИКА ---
+    st.subheader(t["freeze_shop"])
+    st.write(t["freeze_desc"])
+    st.write(t["freeze_owned"].format(count=freeze_count))
+
+    if st.button(t["freeze_buy"], use_container_width=True):
+        if buy_freeze(user_name):
+            st.success("Куплено!" if lang == "Русский" else "Purchased!")
+            st.rerun()
+        else:
+            st.error(t["freeze_not_enough"])
+
+    st.write("---")
 
     st.subheader(t["avatar_shop"])
     st.write(t["avatar_desc"])
@@ -1222,7 +1400,7 @@ elif st.session_state.page == "dictionary":
 elif st.session_state.page == "privacy":
     st.title(t["privacy_title"])
     st.markdown(t["privacy_text"])
-    
+
     st.write("---")
     if st.button(t["btn_next_home"], use_container_width=True):
         st.session_state.page = "home"
