@@ -9,16 +9,14 @@ from sqlalchemy import create_engine, text
 
 # --- НАСТРОЙКА БАЗЫ ДАННЫХ (SUPABASE) ---
 DB_URL = os.environ.get("DATABASE_URL")
-
 if not DB_URL:
-    st.error("Ошибка: Переменная окружения DATABASE_URL не настроена на Render.")
+    st.error("Ошибка: Переменная окружения DATABASE_URL не настроена.")
     st.stop()
 
 if DB_URL.startswith("postgres://"):
     DB_URL = DB_URL.replace("postgres://", "postgresql://", 1)
 
-engine = create_engine(DB_URL)
-
+engine = create_engine(DB_URL, pool_pre_ping=True)
 
 @st.cache_resource
 def init_db():
@@ -26,7 +24,9 @@ def init_db():
         conn.execute(text('''CREATE TABLE IF NOT EXISTS users
                      (name TEXT PRIMARY KEY, streak INTEGER, last_login TEXT, xp INTEGER, crystals INTEGER, 
                       last_xp_date TEXT, theme TEXT, quest_calc INTEGER, quest_read INTEGER, level INTEGER, shared INTEGER,
-                      max_streak INTEGER, max_level INTEGER, avatar TEXT, chest_claimed INTEGER, last_bonus_date TEXT, last_challenge_date TEXT, feedback TEXT, freeze_count INTEGER DEFAULT 0)'''))
+                      max_streak INTEGER, max_level INTEGER, avatar TEXT, chest_claimed INTEGER, last_bonus_date TEXT, 
+                      last_challenge_date TEXT, feedback TEXT, streak_freeze INTEGER DEFAULT 0,
+                      daily_quest_calc BOOLEAN DEFAULT FALSE, daily_quest_read BOOLEAN DEFAULT FALSE, last_daily_reset TEXT DEFAULT '', promo_used TEXT DEFAULT '')'''))
         conn.execute(text('''CREATE TABLE IF NOT EXISTS leaderboard
                      (name TEXT PRIMARY KEY, xp INTEGER)'''))
         conn.execute(text('''CREATE TABLE IF NOT EXISTS saved_goals
@@ -39,12 +39,12 @@ def init_db():
 init_db()
 
 
-# --- ФУНКЦИИ С КЭШИРОВАНИЕМ ---
+# --- ФУНКЦИИ (С КЭШЕМ) ---
 @st.cache_data(ttl=60)
 def get_user_stats(name):
     with engine.connect() as conn:
         result = conn.execute(text(
-            "SELECT streak, last_login, xp, crystals, last_xp_date, theme, quest_calc, quest_read, level, shared, max_streak, max_level, avatar, chest_claimed, freeze_count FROM users WHERE name = :name"),
+            "SELECT streak, last_login, xp, crystals, last_xp_date, theme, quest_calc, quest_read, level, shared, max_streak, max_level, avatar, chest_claimed, streak_freeze, daily_quest_calc, daily_quest_read, last_daily_reset FROM users WHERE name = :name"),
                               {"name": name}).fetchone()
         return result
 
@@ -52,7 +52,7 @@ def get_user_stats(name):
 def create_user(name):
     with engine.begin() as conn:
         conn.execute(text(
-            "INSERT INTO users (name, streak, last_login, xp, crystals, last_xp_date, theme, quest_calc, quest_read, level, shared, max_streak, max_level, avatar, chest_claimed, last_bonus_date, last_challenge_date, feedback, freeze_count) VALUES (:name, 0, '', 0, 0, '', 'default', 0, 0, 1, 0, 0, 1, '🦉', 0, '', '', '', 0) ON CONFLICT DO NOTHING"),
+            "INSERT INTO users (name, streak, last_login, xp, crystals, last_xp_date, theme, quest_calc, quest_read, level, shared, max_streak, max_level, avatar, chest_claimed, last_bonus_date, last_challenge_date, feedback, streak_freeze, daily_quest_calc, daily_quest_read, last_daily_reset, promo_used) VALUES (:name, 0, '', 0, 0, '', 'default', 0, 0, 1, 0, 0, 1, '🦉', 0, '', '', '', 0, FALSE, FALSE, '', '') ON CONFLICT DO NOTHING"),
                      {"name": name})
         conn.execute(text("INSERT INTO leaderboard (name, xp) VALUES (:name, 0) ON CONFLICT DO NOTHING"),
                      {"name": name})
@@ -89,31 +89,45 @@ def buy_avatar(name, avatar_emoji, cost):
         return False
 
 
-def buy_freeze(name):
-    cost = 50
+def buy_streak_freeze(name):
     with engine.begin() as conn:
         crystals = conn.execute(text("SELECT crystals FROM users WHERE name = :name"), {"name": name}).fetchone()[0]
-        if crystals >= cost:
-            conn.execute(text(
-                "UPDATE users SET crystals = crystals - :cost, freeze_count = freeze_count + 1 WHERE name = :name"),
-                         {"cost": cost, "name": name})
+        if crystals >= 50:
+            conn.execute(
+                text("UPDATE users SET crystals = crystals - 50, streak_freeze = streak_freeze + 1 WHERE name = :name"),
+                {"name": name})
             st.cache_data.clear()
             return True
+        return False
+
+
+def apply_promo(name, code):
+    with engine.begin() as conn:
+        if code == "START2026":
+            promo_used = \
+            conn.execute(text("SELECT promo_used FROM users WHERE name = :name"), {"name": name}).fetchone()[0]
+            if promo_used != "START2026":
+                conn.execute(
+                    text("UPDATE users SET crystals = crystals + 100, promo_used = 'START2026' WHERE name = :name"),
+                    {"name": name})
+                st.cache_data.clear()
+                return True
         return False
 
 
 def update_streak_and_xp(name):
     with engine.begin() as conn:
         user = conn.execute(text(
-            "SELECT streak, last_login, xp, level, max_streak, max_level, freeze_count FROM users WHERE name = :name"),
+            "SELECT streak, last_login, xp, level, max_streak, max_level, streak_freeze FROM users WHERE name = :name"),
                             {"name": name}).fetchone()
-        streak = user[0] if user[0] is not None else 0
-        last_login = user[1] if user[1] is not None else ""
-        xp = user[2] if user[2] is not None else 0
-        current_level = user[3] if user[3] is not None else 1
-        max_streak = user[4] if user[4] is not None else 0
-        max_level = user[5] if user[5] is not None else 1
-        freeze = user[6] if user[6] is not None else 0
+        streak, last_login, xp, current_level, max_streak, max_level, freeze = user
+        streak = streak if streak is not None else 0
+        last_login = last_login if last_login is not None else ""
+        xp = xp if xp is not None else 0
+        current_level = current_level if current_level is not None else 1
+        max_streak = max_streak if max_streak is not None else 0
+        max_level = max_level if max_level is not None else 1
+        freeze = freeze if freeze is not None else 0
 
         now = date.today()
         if last_login:
@@ -123,8 +137,9 @@ def update_streak_and_xp(name):
                 streak += 1
             elif delta > 1:
                 if freeze > 0:
-                    freeze -= 1
-                    st.toast("❄️ Твой стрик заморожен! Потрачен 1 щит.", icon="🧊")
+                    conn.execute(text("UPDATE users SET streak_freeze = streak_freeze - 1 WHERE name = :name"),
+                                 {"name": name})
+                    streak += 1
                 else:
                     streak = 1
         else:
@@ -135,23 +150,20 @@ def update_streak_and_xp(name):
             xp += 10
             if streak % 7 == 0:
                 xp += 50
-                st.toast(f"🔥 Огонь! Ты заходишь {streak} дней подряд. Получено +50 XP!", icon="🎁")
             elif streak % 3 == 0:
                 xp += 20
-                st.toast(f"⚡ Отличный стрик! {streak} дней. Получено +20 XP!", icon="✨")
 
         new_level = (xp // 100) + 1
         if new_level > current_level:
             conn.execute(text("UPDATE users SET crystals = crystals + 50 WHERE name = :name"), {"name": name})
-            st.toast(f"🎉 Новый уровень {new_level}! Получено 50 💎", icon="🎊")
 
         if streak > max_streak: max_streak = streak
         if new_level > max_level: max_level = new_level
 
         conn.execute(text(
-            "UPDATE users SET streak = :st, last_login = :ll, xp = :xp, level = :lv, max_streak = :ms, max_level = :ml, freeze_count = :fc WHERE name = :name"),
+            "UPDATE users SET streak = :st, last_login = :ll, xp = :xp, level = :lv, max_streak = :ms, max_level = :ml WHERE name = :name"),
                      {"st": streak, "ll": today_str, "xp": xp, "lv": new_level, "ms": max_streak, "ml": max_level,
-                      "fc": freeze, "name": name})
+                      "name": name})
         conn.execute(text("UPDATE leaderboard SET xp = :xp WHERE name = :name"), {"xp": xp, "name": name})
 
 
@@ -169,17 +181,16 @@ def claim_daily_challenge(name):
 def complete_quest(name, quest_name, reward_xp, reward_crystals):
     with engine.begin() as conn:
         if quest_name == "calc":
-            conn.execute(
-                text("UPDATE users SET quest_calc = 1, xp = xp + :rx, crystals = crystals + :rc WHERE name = :name"),
-                {"rx": reward_xp, "rc": reward_crystals, "name": name})
+            conn.execute(text(
+                "UPDATE users SET quest_calc = 1, xp = xp + :rx, crystals = crystals + :rc, daily_quest_calc = TRUE WHERE name = :name"),
+                         {"rx": reward_xp, "rc": reward_crystals, "name": name})
         elif quest_name == "read":
-            conn.execute(
-                text("UPDATE users SET quest_read = 1, xp = xp + :rx, crystals = crystals + :rc WHERE name = :name"),
-                {"rx": reward_xp, "rc": reward_crystals, "name": name})
+            conn.execute(text(
+                "UPDATE users SET quest_read = 1, xp = xp + :rx, crystals = crystals + :rc, daily_quest_read = TRUE WHERE name = :name"),
+                         {"rx": reward_xp, "rc": reward_crystals, "name": name})
         elif quest_name == "share":
             conn.execute(text("UPDATE users SET shared = 1, crystals = crystals + :rc WHERE name = :name"),
                          {"rc": reward_crystals, "name": name})
-
         new_xp = conn.execute(text("SELECT xp FROM users WHERE name = :name"), {"name": name}).fetchone()[0]
         conn.execute(text("UPDATE leaderboard SET xp = :xp WHERE name = :name"), {"xp": new_xp, "name": name})
     st.cache_data.clear()
@@ -188,7 +199,6 @@ def complete_quest(name, quest_name, reward_xp, reward_crystals):
 def save_feedback(name, feedback_text):
     with engine.begin() as conn:
         conn.execute(text("UPDATE users SET feedback = :fb WHERE name = :name"), {"fb": feedback_text, "name": name})
-    st.cache_data.clear()
 
 
 def buy_theme(name, theme_id, cost):
@@ -210,6 +220,12 @@ def get_leaderboard():
         return [(row[0], row[1], row[2] if row[2] else "🦉") for row in result]
 
 
+def get_opponent_stats(name):
+    with engine.connect() as conn:
+        return conn.execute(text("SELECT xp, crystals, streak, avatar FROM users WHERE name = :name"),
+                            {"name": name}).fetchone()
+
+
 def calc_compound(principal, monthly, annual_rate, years):
     months = int(years * 12)
     r = annual_rate / 100 / 12
@@ -217,13 +233,12 @@ def calc_compound(principal, monthly, annual_rate, years):
     total = principal
     for m in range(1, months + 1):
         total = total * (1 + r) + monthly
-        if m % 12 == 0 or m == months:
-            balances.append((m / 12, total))
+        if m % 12 == 0 or m == months: balances.append((m / 12, total))
     contributed = principal + monthly * months
     return total, contributed, balances
 
 
-# --- СЛОВАРИ ---
+# --- СЛОВАРИ (ОСТАВЛЯЕМ КАК ЕСТЬ) ---
 texts = {
     "Русский": {
         "title": "💰 Questalism", "subtitle": "Твоя мечта. Твой путь. Твои деньги.",
@@ -261,120 +276,92 @@ texts = {
         "ach10": "🎓 Школьник — ты учишься и копишь одновременно.",
         "milestone_10": "10% — Первый шаг", "milestone_25": "25% — Четверть пути", "milestone_50": "50% — Экватор",
         "milestone_75": "75% — Финиш близко", "milestone_100": "100% — Покупка!", "milestone_done": "✅ Пройдено",
-        "milestone_wait": "🔒 Впереди",
-        "why_save": "Почему важно копить",
+        "milestone_wait": "🔒 Впереди", "why_save": "Почему важно копить",
         "why1": "• Финансовая свобода: ты не зависишь от родителей в мелочах.",
         "why2": "• Мечты сбываются: покупка того, что давно хотел.",
         "why3": "• Уверенность: ты знаешь, что у тебя есть запас.",
         "why4": "• Будущее: привычка копить останется с тобой навсегда.",
         "spend_less": "Как меньше тратить",
         "spend1": "• Правило 24 часов: если хочешь импульсивную покупку — подожди день. Если желание не пропало — бери.",
-        "spend2": "• Список покупок: иди в магазин только с готовым списком, чтобы не набрать лишнего.",
-        "spend3": "• Кофе дома: делай напитки сам, это экономит тысячи рублей в месяц.",
-        "spend4": "• Подписки: проверь, какими сервисами ты реально пользуешься. Остальные — отмени.",
-        "spend5": "• Импульс: не покупай, когда злишься или грустишь.",
-        "psychology": "Психология накоплений",
-        "psy1": "• Автоматизация: откладывай деньги сразу в день, когда они пришли.",
-        "psy2": "• Визуализация: повесь картинку цели на видное место.",
-        "psy3": "• Маленькие шаги: лучше отложить 100 рублей, чем 0.",
-        "psy4": "• Поддержка: расскажи другу о цели, он будет тебя подбадривать.",
-        "psy5": "• Прощение: если потратил лишнее — не ругай себя, просто продолжай.",
+        "spend2": "• Список покупок: иди в магазин только с готовым списком.",
+        "spend3": "• Кофе дома: делай напитки сам.",
+        "spend4": "• Подписки: проверь, какими сервисами ты реально пользуешься.",
+        "spend5": "• Импульс: не покупай, когда злишься.",
+        "psychology": "Психология накоплений", "psy1": "• Автоматизация: откладывай деньги сразу.",
+        "psy2": "• Визуализация: повесь картинку цели.",
+        "psy3": "• Маленькие шаги: лучше отложить 100 рублей, чем 0.", "psy4": "• Поддержка: расскажи другу о цели.",
+        "psy5": "• Прощение: если потратил лишнее — не ругай себя.",
         "feature": "💡 Совет дня", "feature_btn": "Получить совет",
-        "tips": ["Начни с 100 рублей. Главное — начать.", "Запиши цель на бумаге.", "Сравни себя с собой вчерашним.",
-                 "Отложи 10%.", "Не жди понедельника."],
-        "dash_hello": "Привет, {name}!", "dash_level": "Уровень", "dash_xp": "⭐ Опыт",
-        "dash_daily": "📅 Задания дня", "dash_daily_1": "Зайди (✅)", "dash_daily_2": "Рассчитай цель (+50 XP)",
-        "dash_daily_3": "Прочитай совет (+20 XP)",
-        "streak_label": "Стрик", "days": "дней", "crystals_label": "Кристаллы",
-        "league_title": "🏆 Рейтинг", "league_desc": "Соревнуйся с другими пользователями!",
-        "shop_title": "🛒 Магазин", "shop_desc": "Трать кристаллы на улучшение профиля.",
-        "theme_default": "Классика", "theme_neon": "Неон", "theme_light": "Светлая", "theme_space": "Космос",
-        "theme_dark": "Ночная",
-        "cost_label": "Стоимость: {cost} 💎",
+        "tips": ["Начни с 100 рублей.", "Запиши цель.", "Сравни себя с собой вчерашним.", "Отложи 10%.",
+                 "Не жди понедельника."],
+        "dash_hello": "Привет, {name}!", "dash_level": "Уровень", "dash_xp": "⭐ Опыт", "dash_daily": "📅 Задания дня",
+        "streak_label": "Стрик", "days": "дней", "crystals_label": "Кристаллы", "league_title": "🏆 Рейтинг",
+        "league_desc": "Соревнуйся с другими!",
+        "shop_title": "🛒 Магазин", "shop_desc": "Трать кристаллы на улучшение профиля.", "theme_default": "Классика",
+        "theme_neon": "Неон",
+        "theme_light": "Светлая", "theme_space": "Космос", "theme_dark": "Ночная", "cost_label": "Стоимость: {cost} 💎",
         "buy_btn": "Купить за {cost} 💎", "owned_btn": "Уже куплено ✅", "not_enough": "Не хватает кристаллов!",
         "btn_next_game": "Идём к цели ➡️", "btn_next_knowledge": "Идём в Базу знаний ➡️",
-        "btn_next_league": "Идём в Рейтинг ➡️", "btn_next_shop": "Идём в Магазин ➡️",
-        "btn_next_home": "Идём на Главную ➡️", "btn_next_dict": "Идём в Словарь ➡️",
+        "btn_next_league": "Идём в Рейтинг ➡️",
+        "btn_next_shop": "Идём в Магазин ➡️", "btn_next_home": "Идём на Главную ➡️",
+        "btn_next_dict": "Идём в Словарь ➡️",
         "quest_calc_done": "Квест 'Рассчитать цель' выполнен! +50 XP, +10 💎",
         "quest_read_done": "Квест 'Прочитать совет' выполнен! +20 XP, +5 💎",
         "btn_claim_calc": "🎯 Завершить квест", "btn_claim_read": "💡 Получить совет",
-        "btn_share_reward": "📲 Скопировать и получить 20 💎", "share_reward_done": "✅ Награда за рекламу получена!",
-        "records_title": "🏅 Личные рекорды", "rec_streak": "Максимальный стрик", "rec_level": "Максимальный уровень",
-        "ad_text": "Скопируй текст ниже и отправь другу:",
-        "level_progress": "Прогресс до следующего уровня", "copy_btn": "📋 Скопировать текст",
-        "copied": "✅ Скопировано!",
-        "view_profile": "Посмотреть профиль",
-        "avatar_shop": "🦉 Аватарки", "avatar_desc": "Смени своего совенка!",
-        "theme_shop": "🎨 Темы оформления", "theme_desc": "Смени цвета сайта!",
+        "btn_share_reward": "📲 Скопировать и получить 20 💎",
+        "share_reward_done": "✅ Награда за рекламу получена!", "records_title": "🏅 Личные рекорды",
+        "rec_streak": "Максимальный стрик",
+        "rec_level": "Максимальный уровень", "ad_text": "Скопируй текст ниже и отправь другу:",
+        "level_progress": "Прогресс до следующего уровня",
+        "copy_btn": "📋 Скопировать текст", "copied": "✅ Скопировано!", "view_profile": "Профиль соперника",
+        "avatar_shop": "🦉 Аватарки", "avatar_desc": "Смени своего совенка!", "theme_shop": "🎨 Темы оформления",
+        "theme_desc": "Смени цвета сайта!",
         "quest_map": "🗺️ Твой путь", "q_step1": "Поставить цель", "q_step2": "Рассчитать срок",
         "q_step3": "Прочитать совет", "q_step4": "Поделиться",
         "dict_title": "📖 Финансовый словарь", "dict_desc": "Базовые термины, которые пригодятся в жизни.",
         "dict_terms": {
-            "Бюджет": "План доходов и расходов на определенный период (месяц, год). Помогает контролировать деньги.",
-            "Активы и пассивы": "Активы — то, что приносит деньги (вклад, акции). Пассивы — то, что забирает деньги (кредиты, подписки).",
-            "Доход (активный и пассивный)": "Активный — ты работаешь ради денег (зарплата). Пассивный — деньги работают на тебя (проценты, дивиденды).",
-            "Подушка безопасности": "Финансовый резерв (обычно 3-6 месячных расходов), который спасает в случае потери дохода или непредвиденных трат.",
-            "Инфляция": "Обесценивание денег. Товары дорожают, а на ту же сумму можно купить меньше.",
-            "Дебетовая и кредитная карты": "Дебетовая — твои собственные деньги. Кредитная — деньги банка, которые нужно вернуть с процентами.",
-            "Банковский вклад (депозит)": "Ты даешь деньги банку под процент. Банк гарантирует возврат (в РФ до 1.4 млн).",
-            "Сложный процент": "Когда проценты начисляются не только на твой вклад, но и на проценты, которые набежали раньше. Главная сила инвестиций.",
-            "Инвестиции": "Вложение денег с целью получить доход в будущем (акции, облигации, недвижимость).",
-            "Кэшбэк": "Возврат части потраченных денег на карту. Своего рода скидка от банка."
+            "Бюджет": "План доходов и расходов.", "Активы и пассивы": "Активы приносят деньги, пассивы забирают.",
+            "Доход": "Активный (работа) и пассивный (проценты).", "Подушка безопасности": "Резерв на 3-6 месяцев.",
+            "Инфляция": "Обесценивание денег.", "Дебетовая и кредитная карты": "Свои деньги vs деньги банка.",
+            "Банковский вклад": "Даешь деньги банку под процент.", "Сложный процент": "Проценты на проценты.",
+            "Инвестиции": "Вложение ради дохода.", "Кэшбэк": "Возврат части денег."
         },
         "save_goal_btn": "💾 Сохранить эту цель", "my_goals": "📂 Мои цели",
         "no_goals": "У тебя пока нет сохраненных целей.",
         "share_league_btn": "📢 Похвастаться местом в Рейтинге",
         "share_league_text": "Я на {rank} месте в Рейтинге Questalism! Попробуй обыграть меня: questalism-7uln.onrender.com",
-        "safety_title": "🛡️ Подушка безопасности",
-        "safety_desc": "Сколько денег тебе нужно, чтобы чувствовать себя в безопасности?",
-        "safety_expenses": "Твои месячные расходы (обед, транспорт, подписки):",
-        "safety_months": "На сколько месяцев нужна подушка?", "safety_result": "Твоя подушка безопасности:",
+        "safety_title": "🛡️ Подушка безопасности", "safety_desc": "Сколько денег тебе нужно для безопасности?",
+        "safety_expenses": "Твои месячные расходы:", "safety_months": "На сколько месяцев нужна подушка?",
+        "safety_result": "Твоя подушка безопасности:",
         "safety_btn": "Рассчитать",
         "achievements_earned": "Посмотреть, за что ты получил ачивку, можно в разделе 'Квест'.",
         "safety_hint": "Рекомендуем копить на 3-6 месяцев жизни.", "made_with_love": "Сделано с ❤️ для всех. v1.0",
-        "hide_btn": "🙈 Скрыть цифры", "show_btn": "👁️ Показать цифры",
-        "hide_mode_info": "Режим скрытия цифр включён. Нажми «Показать цифры», чтобы вернуться к вводу.",
-        "compound_title": "✨ Сила сложного процента",
-        "compound_desc": "Посмотри, как работают деньги, когда проценты начисляются на проценты.",
+        "hide_btn": "🙈 Скрыть цифры", "show_btn": "👁️ Показать цифры", "hide_mode_info": "Режим скрытия цифр включён.",
+        "compound_title": "✨ Сила сложного процента", "compound_desc": "Посмотри, как работают деньги.",
         "compound_principal": "Начальная сумма",
-        "compound_monthly": "Ежемесячный взнос",
-        "compound_rate": "Ставка, % годовых",
-        "compound_years": "Срок, лет",
-        "compound_calc": "Рассчитать",
-        "compound_with": "Со сложным процентом",
+        "compound_monthly": "Ежемесячный взнос", "compound_rate": "Ставка, % годовых", "compound_years": "Срок, лет",
+        "compound_calc": "Рассчитать", "compound_with": "Со сложным процентом",
         "compound_without": "Без процентов (только взносы)",
-        "compound_contributed": "Всего вложено",
-        "compound_profit": "Заработано на процентах",
+        "compound_contributed": "Всего вложено", "compound_profit": "Заработано на процентах",
         "compound_magic": "Магия сложного процента дала тебе +{diff} сверху!",
-        "compound_chart": "Рост капитала по годам",
-        "privacy_title": "🔒 Политика конфиденциальности",
-        "privacy_text": """**Твоя приватность важна для нас.**
-
-1. **Какие данные мы собираем:** Мы сохраняем только имя, которое ты ввел, и твои финансовые цели, чтобы ты мог видеть свой прогресс и участвовать в рейтинге.
-2. **Как мы используем данные:** Данные используются исключительно внутри платформы Questalism. Мы не передаем их третьим лицам и не продаем рекламным сетям.
-3. **Хранение:** Мы используем LocalStorage в твоем браузере для запоминания входа.
-4. **Удаление:** Ты всегда можешь начать с чистого листа, очистив кэш браузера или создав новый профиль.
-
-Играй, копи и не переживай о безопасности! 🛡️""",
+        "compound_chart": "Рост капитала по годам", "privacy_title": "🔒 Политика конфиденциальности",
+        "privacy_text": "Твоя приватность важна. Мы собираем только имя и цели. Не передаем третьим лицам.",
         "privacy_btn": "🔒 Политика конфиденциальности",
         "challenge_title": "🔥 Челлендж дня",
-        "challenge_desc": "Отложи сегодня 100 ₽ (или больше) на свою цель. Это формирует привычку!",
+        "challenge_desc": "Отложи сегодня 100 ₽ на свою цель. Это формирует привычку!",
         "challenge_btn": "✅ Я отложил 100 ₽ (+30 XP, +30 💎)",
         "challenge_done": "✅ Ты выполнил челлендж дня! Возвращайся завтра.",
         "feedback_title": "💬 Обратная связь",
         "feedback_desc": "Насколько тебе удобно пользоваться сайтом? Есть что улучшить?",
-        "feedback_placeholder": "Напиши свои мысли...",
-        "feedback_btn": "Отправить отзыв",
+        "feedback_placeholder": "Напиши свои мысли...", "feedback_btn": "Отправить отзыв",
         "feedback_done": "✅ Спасибо за твой отзыв!",
-        "freeze_shop": "❄️ Заморозка стрика",
-        "freeze_desc": "Сохраняет твой стрик, если ты пропустишь день.",
-        "freeze_buy": "Купить за 50 💎",
-        "freeze_owned": "Щитов куплено: {count}",
-        "freeze_not_enough": "Не хватает кристаллов!",
-        "my_profile": "Твой профиль",
-        "view_profile": "Посмотреть профиль",
-        "close": "Закрыть",
-        "user_achievements": "Ачивки пользователя"
+        "streak_freeze_title": "🧊 Заморозка стрика", "streak_freeze_desc": "Пропустил день? Сохрани свой стрик за 50 💎",
+        "streak_freeze_btn": "Купить за 50 💎", "streak_freeze_owned": "Куплено: {count} шт.",
+        "daily_quests_title": "📅 Ежедневные задания", "quest_login": "Зайти на сайт",
+        "quest_calc_task": "Рассчитать цель", "quest_read_task": "Прочитать совет",
+        "quest_done": "✅ Выполнено", "quest_not_done": "❌ Не выполнено", "promo_title": "🎁 Промокод",
+        "promo_input": "Введи промокод", "promo_btn": "Активировать",
+        "promo_success": "✅ Промокод активирован! +100 💎", "promo_error": "❌ Неверный промокод или уже использован."
     },
     "English": {
         "title": "💰 Questalism", "subtitle": "Your dream. Your path. Your money.",
@@ -394,131 +381,84 @@ texts = {
         "speed_up": "🚀 Speed up", "if_more": "Save", "more": "more → term:",
         "need_daily": "Daily:", "wish": "Good luck!",
         "warning": "Enter > 0.", "goal_reached": "Goal reached! 🎉",
-        "status_green": "🟢 Realistic! You will reach your goal fast.",
-        "status_yellow": "🟡 Medium. You will need to try hard.",
-        "status_red": "🔴 Long. Think about how to increase income.",
+        "status_green": "🟢 Realistic!", "status_yellow": "🟡 Medium.", "status_red": "🔴 Long. Increase income.",
         "next_step": "👉 Next:", "next_step_1": "Add a job to speed up.",
         "next_step_2": "Great! Just stick to the plan.",
         "share_text": "I'll save for {goal} in {months} months with Questalism! Check: questalism-7uln.onrender.com",
         "hustle_btn": "Generate idea", "hustle_result": "Try: {idea}. Income: {income} {symbol}.",
         "hustles": [("Dog walking", 5000), ("Homework", 6000), ("Courier", 8000), ("Streaming", 3000),
                     ("Selling", 4000), ("Tutor", 10000), ("PC help", 7000), ("Docs", 6000)],
-        "ach1": "🎯 First step — started saving.", "ach2": "💎 Saver — save > 1000/mo.", "ach3": "🥇 Quarter — 25% done.",
-        "ach4": "🔥 Halfway — 50% done.", "ach5": "⭐ Almost — 75% done.", "ach6": "🏆 Marathoner — > 1 year.",
-        "ach7": "🚀 Sprinter — you will reach your goal in less than 6 months.", "ach8": "💪 Worker — extra income.",
-        "ach9": "👑 High income — > 10K.",
-        "ach10": "🎓 Student — study & save.",
-        "milestone_10": "10%", "milestone_25": "25%", "milestone_50": "50%",
-        "milestone_75": "75%", "milestone_100": "100%", "milestone_done": "✅ Done", "milestone_wait": "🔒 Ahead",
-        "why_save": "Why save",
-        "why1": "• Financial freedom: you don't depend on parents.",
-        "why2": "• Dreams come true: buying what you wanted.",
-        "why3": "• Confidence: you know you have a backup.",
-        "why4": "• Future: the habit of saving will stay with you forever.",
-        "spend_less": "Spend less",
-        "spend1": "• 24-hour rule: wait a day before an impulse buy.",
-        "spend2": "• Shopping list: don't go shopping without it.",
-        "spend3": "• Coffee at home: make drinks yourself.",
-        "spend4": "• Subscriptions: check what you really use.",
-        "spend5": "• Impulse: don't buy when you are angry or sad.",
-        "psychology": "Psychology of saving",
-        "psy1": "• Automation: save money immediately when it arrives.",
-        "psy2": "• Visualization: put a picture of your goal in a visible place.",
-        "psy3": "• Small steps: better to save 100 rubles than 0.",
-        "psy4": "• Support: tell a friend about your goal.",
-        "psy5": "• Forgiveness: if you overspent, don't scold yourself.",
+        "ach1": "🎯 First step.", "ach2": "💎 Saver.", "ach3": "🥇 Quarter.", "ach4": "🔥 Halfway.", "ach5": "⭐ Almost.",
+        "ach6": "🏆 Marathoner.", "ach7": "🚀 Sprinter.", "ach8": "💪 Worker.", "ach9": "👑 High income.",
+        "ach10": "🎓 Student.",
+        "milestone_10": "10%", "milestone_25": "25%", "milestone_50": "50%", "milestone_75": "75%",
+        "milestone_100": "100%",
+        "milestone_done": "✅ Done", "milestone_wait": "🔒 Ahead",
+        "why_save": "Why save", "why1": "• Financial freedom.", "why2": "• Dreams come true.", "why3": "• Confidence.",
+        "why4": "• Future habit.",
+        "spend_less": "Spend less", "spend1": "• 24-hour rule.", "spend2": "• Shopping list.",
+        "spend3": "• Coffee at home.", "spend4": "• Subscriptions.", "spend5": "• Impulse.",
+        "psychology": "Psychology", "psy1": "• Automation.", "psy2": "• Visualization.", "psy3": "• Small steps.",
+        "psy4": "• Support.", "psy5": "• Forgiveness.",
         "feature": "💡 Tip", "feature_btn": "Get tip",
         "tips": ["Start with $1.", "Write goal.", "Compare to self.", "Save 10%.", "Start today."],
-        "dash_hello": "Hello, {name}!", "dash_level": "Level", "dash_xp": "⭐ XP",
-        "dash_daily": "📅 Daily Quests", "dash_daily_1": "Log in (✅)", "dash_daily_2": "Calculate (+50 XP)",
-        "dash_daily_3": "Read tip (+20 XP)",
-        "streak_label": "Streak", "days": "days", "crystals_label": "Crystals",
-        "league_title": "🏆 Rating", "league_desc": "Compete with other users!",
-        "shop_title": "🛒 Shop", "shop_desc": "Spend crystals to upgrade your profile.",
-        "theme_default": "Classic", "theme_neon": "Neon", "theme_light": "Light", "theme_space": "Space",
-        "theme_dark": "Night",
-        "cost_label": "Cost: {cost} 💎",
+        "dash_hello": "Hello, {name}!", "dash_level": "Level", "dash_xp": "⭐ XP", "dash_daily": "📅 Daily Quests",
+        "streak_label": "Streak", "days": "days", "crystals_label": "Crystals", "league_title": "🏆 Rating",
+        "league_desc": "Compete with others!",
+        "shop_title": "🛒 Shop", "shop_desc": "Spend crystals to upgrade profile.", "theme_default": "Classic",
+        "theme_neon": "Neon",
+        "theme_light": "Light", "theme_space": "Space", "theme_dark": "Night", "cost_label": "Cost: {cost} 💎",
         "buy_btn": "Buy for {cost} 💎", "owned_btn": "Owned ✅", "not_enough": "Not enough crystals!",
         "btn_next_game": "Go to Quest ➡️", "btn_next_knowledge": "Go to Knowledge ➡️",
-        "btn_next_league": "Go to Rating ➡️", "btn_next_shop": "Go to Shop ➡️", "btn_next_home": "Go to Home ➡️",
-        "btn_next_dict": "Go to Dictionary ➡️",
-        "quest_calc_done": "Quest 'Calculate' completed! +50 XP, +10 💎",
-        "quest_read_done": "Quest 'Read tip' completed! +20 XP, +5 💎",
-        "btn_claim_calc": "🎯 Complete quest", "btn_claim_read": "💡 Get tip",
-        "btn_share_reward": "📲 Copy and get 20 💎", "share_reward_done": "✅ Ad reward received!",
-        "records_title": "🏅 Personal Records", "rec_streak": "Max Streak", "rec_level": "Max Level",
-        "ad_text": "Copy the text below and send it to a friend:",
-        "level_progress": "Progress to next level", "copy_btn": "📋 Copy text", "copied": "✅ Copied!",
-        "view_profile": "View profile",
-        "avatar_shop": "🦉 Avatars", "avatar_desc": "Change your owl!",
-        "theme_shop": "🎨 Themes", "theme_desc": "Change site colors!",
+        "btn_next_league": "Go to Rating ➡️",
+        "btn_next_shop": "Go to Shop ➡️", "btn_next_home": "Go to Home ➡️", "btn_next_dict": "Go to Dictionary ➡️",
+        "quest_calc_done": "Quest completed! +50 XP, +10 💎", "quest_read_done": "Read completed! +20 XP, +5 💎",
+        "btn_claim_calc": "🎯 Complete quest", "btn_claim_read": "💡 Get tip", "btn_share_reward": "📲 Copy and get 20 💎",
+        "share_reward_done": "✅ Ad reward received!", "records_title": "🏅 Records", "rec_streak": "Max Streak",
+        "rec_level": "Max Level",
+        "ad_text": "Copy the text below:", "level_progress": "Progress to next level", "copy_btn": "📋 Copy text",
+        "copied": "✅ Copied!",
+        "view_profile": "Rival's profile", "avatar_shop": "🦉 Avatars", "avatar_desc": "Change your owl!",
+        "theme_shop": "🎨 Themes", "theme_desc": "Change colors!",
         "quest_map": "🗺️ Your Path", "q_step1": "Set a goal", "q_step2": "Calculate term", "q_step3": "Read a tip",
         "q_step4": "Share result",
-        "dict_title": "📖 Financial Dictionary", "dict_desc": "Basic terms you need in life.",
+        "dict_title": "📖 Dictionary", "dict_desc": "Basic terms you need in life.",
         "dict_terms": {
-            "Budget": "A plan for income and expenses.",
-            "Assets & Liabilities": "Assets bring money. Liabilities take money.",
-            "Active & Passive Income": "Active - you work for money. Passive - money works for you.",
-            "Emergency Fund": "Money saved for unexpected expenses (3-6 months of expenses).",
-            "Inflation": "Money loses value. Goods become more expensive.",
-            "Debit vs Credit Card": "Debit - your own money. Credit - bank's money you must pay back with interest.",
-            "Deposit": "You give money to the bank for interest.",
-            "Compound Interest": "Interest on interest. The most powerful force in investing.",
-            "Investments": "Putting money to work to get income in the future.",
-            "Cashback": "Returning a percentage of spent money back to your card."
+            "Budget": "Income/expense plan.", "Assets & Liabilities": "Assets bring money, liabilities take.",
+            "Income": "Active (work) and passive (interest).", "Emergency Fund": "Reserve for 3-6 months.",
+            "Inflation": "Money loses value.", "Debit vs Credit Card": "Your money vs bank's money.",
+            "Deposit": "Give money to bank for interest.", "Compound Interest": "Interest on interest.",
+            "Investments": "Putting money to work.", "Cashback": "Returning a percentage."
         },
-        "save_goal_btn": "💾 Save this goal", "my_goals": "📂 My Goals", "no_goals": "You don't have saved goals yet.",
-        "share_league_btn": "📢 Brag about your Rating rank",
+        "save_goal_btn": "💾 Save this goal", "my_goals": "📂 My Goals", "no_goals": "No saved goals yet.",
+        "share_league_btn": "📢 Brag about your rank",
         "share_league_text": "I'm #{rank} in the Questalism Rating! Try to beat me: questalism-7uln.onrender.com",
         "safety_title": "🛡️ Emergency Fund", "safety_desc": "How much money do you need to feel safe?",
-        "safety_expenses": "Your monthly expenses (lunch, transport, subs):",
-        "safety_months": "How many months do you need?", "safety_result": "Your emergency fund:",
-        "safety_btn": "Calculate", "achievements_earned": "See what you got achievements for in the 'Quest' section.",
-        "safety_hint": "We recommend saving for 3-6 months of living.",
-        "made_with_love": "Made with ❤️ for everyone. v1.0",
-        "hide_btn": "🙈 Hide numbers", "show_btn": "👁️ Show numbers",
-        "hide_mode_info": "Hide mode is ON. Click 'Show numbers' to edit.",
-        "compound_title": "✨ The power of compound interest",
-        "compound_desc": "See what money does when interest earns interest.",
+        "safety_expenses": "Monthly expenses:", "safety_months": "How many months?", "safety_result": "Your fund:",
+        "safety_btn": "Calculate", "achievements_earned": "See achievements in 'Quest' section.",
+        "safety_hint": "We recommend 3-6 months of living.", "made_with_love": "Made with ❤️. v1.0",
+        "hide_btn": "🙈 Hide numbers", "show_btn": "👁️ Show numbers", "hide_mode_info": "Hide mode is ON.",
+        "compound_title": "✨ Power of compound interest", "compound_desc": "See how money works.",
         "compound_principal": "Starting amount",
-        "compound_monthly": "Monthly contribution",
-        "compound_rate": "Annual rate, %",
-        "compound_years": "Years",
-        "compound_calc": "Calculate",
-        "compound_with": "With compound interest",
-        "compound_without": "Without interest (contributions only)",
-        "compound_contributed": "Total contributed",
-        "compound_profit": "Earned on interest",
-        "compound_magic": "Compound interest magic gave you +{diff} extra!",
-        "compound_chart": "Capital growth by year",
-        "privacy_title": "🔒 Privacy Policy",
-        "privacy_text": """**Your privacy matters to us.**
-
-1. **What data we collect:** We only save the name you enter and your financial goals to track your progress and show you on the leaderboard.
-2. **How we use data:** Data is used exclusively within Questalism. We do not share it with third parties or sell it to ad networks.
-3. **Storage:** We use LocalStorage in your browser to remember your login.
-4. **Deletion:** You can always start fresh by clearing your browser cache or creating a new profile.
-
-Play, save, and don't worry about security! 🛡️""",
+        "compound_monthly": "Monthly contribution", "compound_rate": "Annual rate, %", "compound_years": "Years",
+        "compound_calc": "Calculate", "compound_with": "With compound interest", "compound_without": "Without interest",
+        "compound_contributed": "Total contributed", "compound_profit": "Earned on interest",
+        "compound_magic": "Magic gave you +{diff} extra!",
+        "compound_chart": "Capital growth", "privacy_title": "🔒 Privacy Policy",
+        "privacy_text": "Your privacy matters. We collect only name and goals. Not shared with third parties.",
         "privacy_btn": "🔒 Privacy Policy",
-        "challenge_title": "🔥 Daily Challenge",
-        "challenge_desc": "Save 100 ₽ (or more) today for your goal. It builds a habit!",
-        "challenge_btn": "✅ I saved 100 ₽ (+30 XP, +30 💎)",
-        "challenge_done": "✅ You completed today's challenge! Come back tomorrow.",
-        "feedback_title": "💬 Feedback",
-        "feedback_desc": "How convenient is the site? Anything to improve?",
-        "feedback_placeholder": "Write your thoughts...",
-        "feedback_btn": "Send feedback",
+        "challenge_title": "🔥 Daily Challenge", "challenge_desc": "Save 100 ₽ today for your goal. It builds a habit!",
+        "challenge_btn": "✅ I saved 100 ₽ (+30 XP, +30 💎)", "challenge_done": "✅ You completed today's challenge!",
+        "feedback_title": "💬 Feedback", "feedback_desc": "How convenient is the site? Anything to improve?",
+        "feedback_placeholder": "Write your thoughts...", "feedback_btn": "Send feedback",
         "feedback_done": "✅ Thanks for your feedback!",
-        "freeze_shop": "❄️ Streak Freeze",
-        "freeze_desc": "Protects your streak if you miss a day.",
-        "freeze_buy": "Buy for 50 💎",
-        "freeze_owned": "Shields owned: {count}",
-        "freeze_not_enough": "Not enough crystals!",
-        "my_profile": "Your profile",
-        "view_profile": "View profile",
-        "close": "Close",
-        "user_achievements": "User achievements"
+        "streak_freeze_title": "🧊 Streak Freeze", "streak_freeze_desc": "Missed a day? Save your streak for 50 💎",
+        "streak_freeze_btn": "Buy for 50 💎", "streak_freeze_owned": "Owned: {count} pcs.",
+        "daily_quests_title": "📅 Daily Quests", "quest_login": "Log in", "quest_calc_task": "Calculate goal",
+        "quest_read_task": "Read a tip",
+        "quest_done": "✅ Done", "quest_not_done": "❌ Not done", "promo_title": "🎁 Promo Code",
+        "promo_input": "Enter promo code", "promo_btn": "Activate",
+        "promo_success": "✅ Promo activated! +100 💎", "promo_error": "❌ Invalid or already used promo code."
     }
 }
 
@@ -527,25 +467,15 @@ localS = LocalStorage()
 saved_name = localS.getItem("questalism_user")
 saved_lang = localS.getItem("questalism_lang")
 
-if saved_name is None:
-    user_name = ""
-else:
-    user_name = saved_name
-
-if saved_lang == "English":
-    lang_index = 1
-else:
-    lang_index = 0
+user_name = saved_name if saved_name else ""
+lang_index = 1 if saved_lang == "English" else 0
 
 # --- ОНБОРДИНГ ---
-if "show_onboarding" not in st.session_state:
-    st.session_state.show_onboarding = False
-if "ob_lang" not in st.session_state:
-    st.session_state.ob_lang = "Русский"
+if "show_onboarding" not in st.session_state: st.session_state.show_onboarding = False
+if "ob_lang" not in st.session_state: st.session_state.ob_lang = "Русский"
 
 if not user_name:
     st.set_page_config(page_title="Questalism", page_icon="💰", layout="centered")
-
     st.session_state.ob_lang = st.radio("Язык / Language", ["Русский", "English"], horizontal=True)
     ob_lang = st.session_state.ob_lang
 
@@ -555,72 +485,48 @@ if not user_name:
             st.markdown("<h3 style='text-align: center; color: gray;'>Твоя мечта. Твой путь. Твои деньги.</h3>",
                         unsafe_allow_html=True)
             st.write("---")
-            col1, col2, col3 = st.columns([1, 2, 1])
-            with col2:
-                st.write("### 🎯 Что это?")
-                st.write(
-                    "Твой личный финансовый симулятор. Узнай, как накопить на мечту, прокачай уровень и обгони друзей.")
-                st.write("### 📈 Почему это круто?")
-                st.write(
-                    "- Считает срок накопления с учетом инфляции\n- Учит финансовой грамотности\n- Игровая механика и рейтинги")
-                st.write("---")
-                if st.button("Начать бесплатно 🚀", use_container_width=True, type="primary"):
-                    st.session_state.show_onboarding = True
-                    st.rerun()
+            st.write("### 🎯 Что это?")
+            st.write(
+                "Твой личный финансовый симулятор. Узнай, как накопить на мечту, прокачай уровень и обгони друзей.")
+            st.write("---")
+            if st.button("Начать бесплатно 🚀", use_container_width=True, type="primary"):
+                st.session_state.show_onboarding = True
+                st.rerun()
         else:
             st.markdown("<h1 style='text-align: center; font-size: 50px;'>💰 Questalism</h1>", unsafe_allow_html=True)
             st.markdown("<h3 style='text-align: center; color: gray;'>Your dream. Your path. Your money.</h3>",
                         unsafe_allow_html=True)
             st.write("---")
-            col1, col2, col3 = st.columns([1, 2, 1])
-            with col2:
-                st.write("### 🎯 What is it?")
-                st.write(
-                    "Your personal financial simulator. Learn how to save for a dream, level up, and beat your friends.")
-                st.write("### 📈 Why is it cool?")
-                st.write(
-                    "- Calculates saving time with inflation\n- Teaches financial literacy\n- Game mechanics and ratings")
-                st.write("---")
-                if st.button("Start for free 🚀", use_container_width=True, type="primary"):
-                    st.session_state.show_onboarding = True
-                    st.rerun()
+            st.write("### 🎯 What is it?")
+            st.write(
+                "Your personal financial simulator. Learn how to save for a dream, level up, and beat your friends.")
+            st.write("---")
+            if st.button("Start for free 🚀", use_container_width=True, type="primary"):
+                st.session_state.show_onboarding = True
+                st.rerun()
     else:
         if ob_lang == "Русский":
             st.title("Давай познакомимся!")
-            st.write("Осталось сделать последний шаг.")
             new_name = st.text_input("Введи своё имя:")
-            col_btn1, col_btn2 = st.columns(2)
-            with col_btn1:
-                if st.button("Начать путь 🚀", use_container_width=True):
-                    if new_name.strip():
-                        create_user(new_name.strip())
-                        localS.setItem("questalism_user", new_name.strip(), key="save_user_1")
-                        localS.setItem("questalism_lang", ob_lang, key="save_lang_1")
-                        st.rerun()
-                    else:
-                        st.error("Введи имя!")
-            with col_btn2:
-                if st.button("⬅️ Назад", use_container_width=True):
-                    st.session_state.show_onboarding = False
+            if st.button("Начать путь 🚀", use_container_width=True):
+                if new_name.strip():
+                    create_user(new_name.strip())
+                    localS.setItem("questalism_user", new_name.strip(), key="save_user_1")
+                    localS.setItem("questalism_lang", ob_lang, key="save_lang_1")
                     st.rerun()
+                else:
+                    st.error("Введи имя!")
         else:
             st.title("Let's get acquainted!")
-            st.write("Just one last step.")
             new_name = st.text_input("Enter your name:")
-            col_btn1, col_btn2 = st.columns(2)
-            with col_btn1:
-                if st.button("Start 🚀", use_container_width=True):
-                    if new_name.strip():
-                        create_user(new_name.strip())
-                        localS.setItem("questalism_user", new_name.strip(), key="save_user_1")
-                        localS.setItem("questalism_lang", ob_lang, key="save_lang_1")
-                        st.rerun()
-                    else:
-                        st.error("Enter name!")
-            with col_btn2:
-                if st.button("⬅️ Back", use_container_width=True):
-                    st.session_state.show_onboarding = False
+            if st.button("Start 🚀", use_container_width=True):
+                if new_name.strip():
+                    create_user(new_name.strip())
+                    localS.setItem("questalism_user", new_name.strip(), key="save_user_1")
+                    localS.setItem("questalism_lang", ob_lang, key="save_lang_1")
                     st.rerun()
+                else:
+                    st.error("Enter name!")
     st.stop()
 
 # Данные
@@ -629,13 +535,16 @@ if stats is None:
     create_user(user_name)
     stats = get_user_stats(user_name)
 
-streak, last_login, xp, crystals, last_xp_date, current_theme, quest_calc, quest_read, level, shared, max_streak, max_level, current_avatar, chest_claimed, freeze_count = stats
+(streak, last_login, xp, crystals, last_xp_date, current_theme, quest_calc, quest_read,
+ level, shared, max_streak, max_level, current_avatar, chest_claimed, streak_freeze,
+ daily_quest_calc, daily_quest_read, last_daily_reset) = stats
+
 update_streak_and_xp(user_name)
-streak, last_login, xp, crystals, last_xp_date, current_theme, quest_calc, quest_read, level, shared, max_streak, max_level, current_avatar, chest_claimed, freeze_count = get_user_stats(
-    user_name)
+(streak, last_login, xp, crystals, last_xp_date, current_theme, quest_calc, quest_read,
+ level, shared, max_streak, max_level, current_avatar, chest_claimed, streak_freeze,
+ daily_quest_calc, daily_quest_read, last_daily_reset) = get_user_stats(user_name)
 
 st.set_page_config(page_title="Questalism", page_icon="💰", layout="wide")
-
 # --- ДИЗАЙН ---
 if current_theme == "neon":
     bg_css = "linear-gradient(135deg, #0f0c29 0%, #302b63 50%, #24243e 100%)"
@@ -701,19 +610,11 @@ st.markdown(
     .ach-icon {{ font-size: 24px; margin-right: 5px; }}
     .ach-locked {{ opacity: 0.3; filter: grayscale(100%); }}
     .ach-hint {{ font-size: 12px; color: gray; margin-top: 5px; }}
-    .league-card {{ background: rgba(128,128,128,0.15); border-radius: 12px; padding: 15px; text-align: center; border: 2px solid rgba(128,128,128,0.3); color: {text_color}; margin-bottom: 10px; }}
-    .league-card-current {{ border: 2px solid #ffd700; background: rgba(255,215,0,0.1); }}
     .challenge-box {{ background: linear-gradient(135deg, #ff9a9e 0%, #fecfef 99%, #fecfef 100%); padding: 15px; border-radius: 10px; color: #333 !important; margin-top: 20px; margin-bottom: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }}
     .challenge-box b {{ color: #000 !important; }}
-
-    /* Стили для активной вкладки */
-    div.stButton > button[kind="primary"] {{
-        background-color: {btn_color} !important;
-        border: 2px solid #ffffff !important;
-        box-shadow: 0 0 10px {btn_color};
-        font-weight: bold;
-        opacity: 1 !important;
-    }}
+    .calendar-day {{ display: inline-block; width: 30px; height: 30px; line-height: 30px; text-align: center; border-radius: 50%; margin: 2px; background-color: rgba(128,128,128,0.2); font-size: 12px; }}
+    .calendar-day-active {{ background-color: #00ffcc; color: #000; font-weight: bold; }}
+    .quest-check {{ font-size: 20px; margin-right: 10px; }}
     </style>
     """,
     unsafe_allow_html=True
@@ -762,9 +663,8 @@ if st.session_state.page == "home":
             <div style="font-size: 50px; margin-bottom: 10px;">{current_avatar}</div>
             <h2>👤 {t['dash_level']} {level}</h2>
             <p>{t['dash_xp']}: {xp}</p>
-            <p>🔥 {t['streak_label']}: {streak} {t['days']}</p>
+            <p>🔥 {t['streak_label']}: {streak} {t['days']} (🧊 {streak_freeze})</p>
             <p>💎 {t['crystals_label']}: {crystals}</p>
-            <p>❄️ {t['freeze_shop']}: {freeze_count}</p>
         </div>
         """, unsafe_allow_html=True)
 
@@ -772,20 +672,43 @@ if st.session_state.page == "home":
         st.write(f"{t['level_progress']}: {xp % 100} / 100 ({xp_for_next} XP left)")
         st.progress((xp % 100) / 100)
 
+        # Календарь активности (последние 7 дней)
+        st.write("---")
+        st.write("📅 Активность за 7 дней:")
+        today = date.today()
+        cols_cal = st.columns(7)
+        for i in range(7):
+            day = today - timedelta(days=6 - i)
+            day_str = day.strftime("%d")
+            # Простая логика: если стрик больше i, то день активен
+            is_active = (6 - i) < streak
+            css_class = "calendar-day calendar-day-active" if is_active else "calendar-day"
+            with cols_cal[i]:
+                st.markdown(f'<div class="{css_class}">{day_str}</div>', unsafe_allow_html=True)
+
+        st.write("---")
+        st.subheader(t["daily_quests_title"])
+        # Сброс заданий, если новый день
+        today_str = date.today().isoformat()
+        if last_daily_reset != today_str:
+            with engine.begin() as conn:
+                conn.execute(text(
+                    "UPDATE users SET daily_quest_calc = FALSE, daily_quest_read = FALSE, last_daily_reset = :d WHERE name = :name"),
+                             {"d": today_str, "name": user_name})
+            st.rerun()
+
+        st.markdown(f"{'✅' if True else '❌'} {t['quest_login']}")
+        st.markdown(f"{'✅' if daily_quest_calc else '❌'} {t['quest_calc_task']}")
+        st.markdown(f"{'✅' if daily_quest_read else '❌'} {t['quest_read_task']}")
+
+        if daily_quest_calc and daily_quest_read:
+            st.success("🎁 Все задания выполнены! Бонус +50 XP")
+            # Здесь можно добавить логику единоразовой выдачи бонуса, чтобы не спамили
+
+        st.write("---")
         st.subheader(t["records_title"])
         st.write(f"🏆 {t['rec_streak']}: {max_streak}")
         st.write(f"⭐ {t['rec_level']}: {max_level}")
-
-        st.write("---")
-        st.subheader(t["achievements_earned"])
-        ach_icons = ["🎯", "💎", "🥇", "🔥", "⭐", "🏆", "🚀", "💪", "👑", "🎓"]
-        cols = st.columns(5)
-        for i, icon in enumerate(ach_icons):
-            with cols[i % 5]:
-                is_unlocked = (i < 3) or (xp > 100 * (i - 2))
-                ach_class = "ach-icon" if is_unlocked else "ach-icon ach-locked"
-                st.markdown(f'<div class="{ach_class}">{icon}</div>', unsafe_allow_html=True)
-        st.markdown(f'<div class="ach-hint">{t["achievements_earned"]}</div>', unsafe_allow_html=True)
 
         today_str = date.today().isoformat()
         with engine.connect() as conn:
@@ -838,7 +761,7 @@ if st.session_state.page == "home":
         st.rerun()
 
 # ==========================================
-# СТРАНИЦА 2: ЛИГА (УПРОЩЕННАЯ)
+# СТРАНИЦА 2: ЛИГА (С ПРОФИЛЕМ СОПЕРНИКА)
 # ==========================================
 elif st.session_state.page == "league":
     st.title(t["league_title"])
@@ -861,28 +784,16 @@ elif st.session_state.page == "league":
         </div>
         """, unsafe_allow_html=True)
 
-        # --- ПРОФИЛЬ СОПЕРНИКА ---
         if name != user_name:
-            with st.expander(f"{t['view_profile']}: {name}"):
-                p_stats = get_user_stats(name)
-                if p_stats:
-                    p_streak, _, p_xp, p_crystals, _, _, p_q_calc, p_q_read, p_level, p_shared, p_max_streak, p_max_level, p_avatar, _, p_freeze = p_stats
-                    st.write(f"**{p_avatar} {name}**")
-                    st.write(f"🔥 {t['streak_label']}: {p_streak} {t['days']}")
-                    st.write(f"⭐ {t['dash_xp']}: {p_xp}")
-                    st.write(f"💎 {t['crystals_label']}: {p_crystals}")
-                    st.write(f"🛡️ {t['dash_level']}: {p_level}")
-                    st.write(f"❄️ {t['freeze_shop']}: {p_freeze}")
-
-                    st.write(f"**{t['user_achievements']}:**")
-                    ach_icons_display = []
-                    if p_q_calc > 0: ach_icons_display.append("🎯")
-                    if p_crystals >= 1000: ach_icons_display.append("💎")
-                    if p_xp >= 100: ach_icons_display.append("🥇")
-                    if p_streak >= 3: ach_icons_display.append("🔥")
-                    if p_max_streak >= 7: ach_icons_display.append("🏆")
-                    if not ach_icons_display: ach_icons_display.append("Нет ачивок")
-                    st.write(" ".join(ach_icons_display))
+            with st.expander(f"👀 {t['view_profile']} ({name})"):
+                opp_stats = get_opponent_stats(name)
+                if opp_stats:
+                    o_xp, o_crys, o_streak, o_av = opp_stats
+                    col_o1, col_o2, col_o3 = st.columns(3)
+                    col_o1.metric("XP", o_xp)
+                    col_o2.metric("💎", o_crys)
+                    col_o3.metric("🔥", f"{o_streak} {t['days']}")
+                    st.write(f"Аватар: {o_av}")
 
     st.write("---")
 
@@ -1023,8 +934,7 @@ elif st.session_state.page == "game":
     st.header(t["result"])
 
     if st.session_state.target <= 0:
-        st.error(
-            "Цель не может быть равна 0 или быть отрицательной." if lang == "Русский" else "Goal cannot be 0 or negative.")
+        st.error("Цель не может быть равна 0." if lang == "Русский" else "Goal cannot be 0.")
     elif st.session_state.target <= st.session_state.current:
         st.success(t["goal_reached"])
     elif total_monthly > 0:
@@ -1074,8 +984,7 @@ elif st.session_state.page == "game":
         st.line_chart(df.set_index(t["chart_month"])[t["chart_balance"]], color=btn_color)
         progress = min(st.session_state.current / st.session_state.target, 1.0)
         st.progress(progress)
-        if not st.session_state.hide_numbers:
-            st.write(f"{t['you_at']} {progress * 100:.1f}{t['to_goal']}")
+        if not st.session_state.hide_numbers: st.write(f"{t['you_at']} {progress * 100:.1f}{t['to_goal']}")
 
         if not st.session_state.hide_numbers:
             if st.button(t["save_goal_btn"], use_container_width=True):
@@ -1108,15 +1017,9 @@ elif st.session_state.page == "game":
 
         st.header(t["achievements"])
         ach_conditions = [
-            (progress > 0.01, t["ach1"]),
-            (total_monthly >= 1000, t["ach2"]),
-            (progress >= 0.25, t["ach3"]),
-            (progress >= 0.5, t["ach4"]),
-            (progress >= 0.75, t["ach5"]),
-            (months >= 12, t["ach6"]),
-            (months < 6, t["ach7"]),
-            (st.session_state.extra > 0, t["ach8"]),
-            (total_monthly >= 10000, t["ach9"]),
+            (progress > 0.01, t["ach1"]), (total_monthly >= 1000, t["ach2"]), (progress >= 0.25, t["ach3"]),
+            (progress >= 0.5, t["ach4"]), (progress >= 0.75, t["ach5"]), (months >= 12, t["ach6"]),
+            (months < 6, t["ach7"]), (st.session_state.extra > 0, t["ach8"]), (total_monthly >= 10000, t["ach9"]),
             (user_type == t["teen"], t["ach10"]),
         ]
         for unlocked, text_ach in ach_conditions:
@@ -1150,7 +1053,6 @@ elif st.session_state.page == "game":
                 st.metric(t["compound_with"], f"{total:,.0f} ₽")
             with ccol2:
                 st.metric(t["compound_without"], f"{contributed:,.0f} ₽")
-
             ccol3, ccol4 = st.columns(2)
             with ccol3:
                 st.metric(t["compound_contributed"], f"{contributed:,.0f} ₽")
@@ -1220,8 +1122,7 @@ elif st.session_state.page == "game":
     st.caption(t["safety_hint"])
 
     st.write("---")
-
-    # --- NPS БЛОК (ПЕРЕНЕСЕН СЮДА) ---
+    # --- NPS БЛОК ---
     st.subheader(t["feedback_title"])
     st.write(t["feedback_desc"])
 
@@ -1239,7 +1140,6 @@ elif st.session_state.page == "game":
             st.success(t["feedback_done"])
 
     st.write("---")
-
     if st.button(t["btn_next_league"], use_container_width=True):
         st.session_state.page = "league"
         st.rerun()
@@ -1251,20 +1151,32 @@ elif st.session_state.page == "shop":
     st.title(t["shop_title"])
     st.write(t["shop_desc"])
 
-    # --- ЗАМОРОЗКА СТРИКА ---
-    st.subheader(t["freeze_shop"])
-    st.write(t["freeze_desc"])
-    st.write(t["freeze_owned"].format(count=freeze_count))
+    # Промокод
+    st.subheader(t["promo_title"])
+    col_p1, col_p2 = st.columns([3, 1])
+    with col_p1:
+        promo_input = st.text_input(t["promo_input"], label_visibility="collapsed", placeholder="START2026")
+    with col_p2:
+        if st.button(t["promo_btn"], use_container_width=True):
+            if apply_promo(user_name, promo_input.strip()):
+                st.success(t["promo_success"])
+                st.rerun()
+            else:
+                st.error(t["promo_error"])
 
-    if st.button(t["freeze_buy"], use_container_width=True):
-        if buy_freeze(user_name):
+    st.write("---")
+    # Заморозка стрика
+    st.subheader(t["streak_freeze_title"])
+    st.write(t["streak_freeze_desc"])
+    st.write(f"{t['streak_freeze_owned'].format(count=streak_freeze)}")
+    if st.button(t["streak_freeze_btn"], use_container_width=True):
+        if buy_streak_freeze(user_name):
             st.success("Куплено!" if lang == "Русский" else "Purchased!")
             st.rerun()
         else:
-            st.error(t["freeze_not_enough"])
+            st.error(t["not_enough"])
 
     st.write("---")
-
     st.subheader(t["avatar_shop"])
     st.write(t["avatar_desc"])
 
