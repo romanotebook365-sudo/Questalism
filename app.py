@@ -35,9 +35,7 @@ def init_db():
         conn.execute(text("DELETE FROM leaderboard WHERE name IN ('Alex', 'Max', 'Sophie', 'Ivan', 'Kate')"))
         conn.execute(text("DELETE FROM users WHERE name IN ('Alex', 'Max', 'Sophie', 'Ivan', 'Kate')"))
 
-
 init_db()
-
 
 # --- ФУНКЦИИ (С КЭШЕМ) ---
 @st.cache_data(ttl=60)
@@ -48,7 +46,6 @@ def get_user_stats(name):
                               {"name": name}).fetchone()
         return result
 
-
 def create_user(name):
     with engine.begin() as conn:
         conn.execute(text(
@@ -58,25 +55,23 @@ def create_user(name):
                      {"name": name})
     st.cache_data.clear()
 
-
 def save_goal_to_db(user_name, goal_name, target, current):
     with engine.begin() as conn:
         conn.execute(
             text("INSERT INTO saved_goals (user_name, goal_name, target_amount, saved_amount) VALUES (:u, :g, :t, :c)"),
             {"u": user_name, "g": goal_name, "t": target, "c": current})
 
-
+@st.cache_data(ttl=30)
 def get_saved_goals(user_name):
     with engine.connect() as conn:
         return conn.execute(
             text("SELECT id, goal_name, target_amount, saved_amount FROM saved_goals WHERE user_name = :u"),
             {"u": user_name}).fetchall()
 
-
 def delete_goal(goal_id):
     with engine.begin() as conn:
         conn.execute(text("DELETE FROM saved_goals WHERE id = :id"), {"id": goal_id})
-
+    st.cache_data.clear()
 
 def buy_avatar(name, avatar_emoji, cost):
     with engine.begin() as conn:
@@ -87,7 +82,6 @@ def buy_avatar(name, avatar_emoji, cost):
             st.cache_data.clear()
             return True
         return False
-
 
 def buy_streak_freeze(name):
     with engine.begin() as conn:
@@ -100,12 +94,10 @@ def buy_streak_freeze(name):
             return True
         return False
 
-
 def apply_promo(name, code):
     with engine.begin() as conn:
         if code == "START2026":
-            promo_used = \
-            conn.execute(text("SELECT promo_used FROM users WHERE name = :name"), {"name": name}).fetchone()[0]
+            promo_used = conn.execute(text("SELECT promo_used FROM users WHERE name = :name"), {"name": name}).fetchone()[0]
             if promo_used != "START2026":
                 conn.execute(
                     text("UPDATE users SET crystals = crystals + 100, promo_used = 'START2026' WHERE name = :name"),
@@ -113,7 +105,6 @@ def apply_promo(name, code):
                 st.cache_data.clear()
                 return True
         return False
-
 
 def update_streak_and_xp(name):
     with engine.begin() as conn:
@@ -165,7 +156,10 @@ def update_streak_and_xp(name):
                      {"st": streak, "ll": today_str, "xp": xp, "lv": new_level, "ms": max_streak, "ml": max_level,
                       "name": name})
         conn.execute(text("UPDATE leaderboard SET xp = :xp WHERE name = :name"), {"xp": xp, "name": name})
-
+        
+        # Возвращаем обновленные данные, чтобы не делать лишний SELECT
+        st.cache_data.clear()
+        return get_user_stats(name)
 
 def claim_daily_challenge(name):
     with engine.begin() as conn:
@@ -176,7 +170,6 @@ def claim_daily_challenge(name):
         new_xp = conn.execute(text("SELECT xp FROM users WHERE name = :name"), {"name": name}).fetchone()[0]
         conn.execute(text("UPDATE leaderboard SET xp = :xp WHERE name = :name"), {"xp": new_xp, "name": name})
     st.cache_data.clear()
-
 
 def complete_quest(name, quest_name, reward_xp, reward_crystals):
     with engine.begin() as conn:
@@ -195,11 +188,9 @@ def complete_quest(name, quest_name, reward_xp, reward_crystals):
         conn.execute(text("UPDATE leaderboard SET xp = :xp WHERE name = :name"), {"xp": new_xp, "name": name})
     st.cache_data.clear()
 
-
 def save_feedback(name, feedback_text):
     with engine.begin() as conn:
         conn.execute(text("UPDATE users SET feedback = :fb WHERE name = :name"), {"fb": feedback_text, "name": name})
-
 
 def buy_theme(name, theme_id, cost):
     with engine.begin() as conn:
@@ -211,7 +202,6 @@ def buy_theme(name, theme_id, cost):
             return True
         return False
 
-
 @st.cache_data(ttl=30)
 def get_leaderboard():
     with engine.connect() as conn:
@@ -219,12 +209,11 @@ def get_leaderboard():
             "SELECT leaderboard.name, leaderboard.xp, users.avatar FROM leaderboard LEFT JOIN users ON leaderboard.name = users.name ORDER BY leaderboard.xp DESC")).fetchall()
         return [(row[0], row[1], row[2] if row[2] else "🦉") for row in result]
 
-
+@st.cache_data(ttl=30)
 def get_opponent_stats(name):
     with engine.connect() as conn:
         return conn.execute(text("SELECT xp, crystals, streak, avatar FROM users WHERE name = :name"),
                             {"name": name}).fetchone()
-
 
 def calc_compound(principal, monthly, annual_rate, years):
     months = int(years * 12)
@@ -236,7 +225,6 @@ def calc_compound(principal, monthly, annual_rate, years):
         if m % 12 == 0 or m == months: balances.append((m / 12, total))
     contributed = principal + monthly * months
     return total, contributed, balances
-
 
 # --- СЛОВАРИ (ОСТАВЛЯЕМ КАК ЕСТЬ) ---
 texts = {
@@ -535,16 +523,15 @@ if stats is None:
     create_user(user_name)
     stats = get_user_stats(user_name)
 
+# Обновляем стрик и получаем свежие данные ОДНИМ запросом
+stats = update_streak_and_xp(user_name)
+
 (streak, last_login, xp, crystals, last_xp_date, current_theme, quest_calc, quest_read,
  level, shared, max_streak, max_level, current_avatar, chest_claimed, streak_freeze,
  daily_quest_calc, daily_quest_read, last_daily_reset) = stats
 
-update_streak_and_xp(user_name)
-(streak, last_login, xp, crystals, last_xp_date, current_theme, quest_calc, quest_read,
- level, shared, max_streak, max_level, current_avatar, chest_claimed, streak_freeze,
- daily_quest_calc, daily_quest_read, last_daily_reset) = get_user_stats(user_name)
-
 st.set_page_config(page_title="Questalism", page_icon="💰", layout="wide")
+
 # --- ДИЗАЙН ---
 if current_theme == "neon":
     bg_css = "linear-gradient(135deg, #0f0c29 0%, #302b63 50%, #24243e 100%)"
@@ -633,7 +620,6 @@ with col_cryst: st.write(f"💎 **{crystals}**")
 
 if "page" not in st.session_state: st.session_state.page = "home"
 
-
 def nav_button(text, page_name, current_page):
     if page_name == current_page:
         st.button(text, use_container_width=True, disabled=True, type="primary")
@@ -641,7 +627,6 @@ def nav_button(text, page_name, current_page):
         if st.button(text, use_container_width=True):
             st.session_state.page = page_name
             st.rerun()
-
 
 nav1, nav2, nav3, nav4, nav5, nav6 = st.columns(6)
 with nav1: nav_button(t["nav_home"], "home", st.session_state.page)
@@ -680,7 +665,6 @@ if st.session_state.page == "home":
         for i in range(7):
             day = today - timedelta(days=6 - i)
             day_str = day.strftime("%d")
-            # Простая логика: если стрик больше i, то день активен
             is_active = (6 - i) < streak
             css_class = "calendar-day calendar-day-active" if is_active else "calendar-day"
             with cols_cal[i]:
@@ -688,14 +672,18 @@ if st.session_state.page == "home":
 
         st.write("---")
         st.subheader(t["daily_quests_title"])
-        # Сброс заданий, если новый день
+        
+        # Сброс заданий (БЕЗ МОРГАНИЯ)
         today_str = date.today().isoformat()
         if last_daily_reset != today_str:
             with engine.begin() as conn:
                 conn.execute(text(
                     "UPDATE users SET daily_quest_calc = FALSE, daily_quest_read = FALSE, last_daily_reset = :d WHERE name = :name"),
                              {"d": today_str, "name": user_name})
-            st.rerun()
+            st.cache_data.clear()
+            # Обновляем локальную переменную, чтобы не перезагружать страницу
+            daily_quest_calc = False
+            daily_quest_read = False
 
         st.markdown(f"{'✅' if True else '❌'} {t['quest_login']}")
         st.markdown(f"{'✅' if daily_quest_calc else '❌'} {t['quest_calc_task']}")
@@ -703,14 +691,12 @@ if st.session_state.page == "home":
 
         if daily_quest_calc and daily_quest_read:
             st.success("🎁 Все задания выполнены! Бонус +50 XP")
-            # Здесь можно добавить логику единоразовой выдачи бонуса, чтобы не спамили
 
         st.write("---")
         st.subheader(t["records_title"])
         st.write(f"🏆 {t['rec_streak']}: {max_streak}")
         st.write(f"⭐ {t['rec_level']}: {max_level}")
 
-        today_str = date.today().isoformat()
         with engine.connect() as conn:
             last_challenge = conn.execute(text("SELECT last_challenge_date FROM users WHERE name = :name"),
                                           {"name": user_name}).fetchone()[0]
@@ -875,21 +861,14 @@ elif st.session_state.page == "game":
         st.write(t["monthly"])
 
         col1, col2, col3, col4 = st.columns(4)
-        with col1:
-            b0 = st.button("100")
-        with col2:
-            b1 = st.button("500")
-        with col3:
-            b2 = st.button("1000")
-        with col4:
-            b3 = st.button("2000")
+        with col1: b0 = st.button("100")
+        with col2: b1 = st.button("500")
+        with col3: b2 = st.button("1000")
+        with col4: b3 = st.button("2000")
         col5, col6, col7 = st.columns(3)
-        with col5:
-            b4 = st.button("3000")
-        with col6:
-            b5 = st.button("5000")
-        with col7:
-            b6 = st.button(t["custom"])
+        with col5: b4 = st.button("3000")
+        with col6: b5 = st.button("5000")
+        with col7: b6 = st.button(t["custom"])
 
         if "custom_mode" not in st.session_state: st.session_state.custom_mode = False
         if b0: st.session_state.monthly, st.session_state.custom_mode = 100, False
@@ -994,10 +973,8 @@ elif st.session_state.page == "game":
 
         st.header(t["quest_levels"])
 
-
         def milestone_status(percentage):
             return t["milestone_done"] if progress >= percentage else t["milestone_wait"]
-
 
         st.markdown(
             f'<div class="quest-level"><b>{t["milestone_10"]}</b> ({st.session_state.target * 0.1:,.0f} {symbol_display}) — {milestone_status(0.1)}</div>',
