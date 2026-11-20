@@ -60,6 +60,7 @@ def save_goal_to_db(user_name, goal_name, target, current):
         conn.execute(
             text("INSERT INTO saved_goals (user_name, goal_name, target_amount, saved_amount) VALUES (:u, :g, :t, :c)"),
             {"u": user_name, "g": goal_name, "t": target, "c": current})
+    st.cache_data.clear()
 
 @st.cache_data(ttl=30)
 def get_saved_goals(user_name):
@@ -843,7 +844,7 @@ elif st.session_state.page == "game":
                         ("Manager", 60000), ("Designer", 65000), ("Marketer", 55000), ("Accountant", 50000),
                         ("Lawyer", 90000), ("Own work", 0)]
 
-        # ОБЕРНУЛИ ВВОД В ФОРМУ, ЧТОБЫ НЕ БЫЛО ПЕРЕЗАГРУЗОК ПРИ ВВОДЕ
+        # --- ФОРМА ТОЛЬКО ДЛЯ ВВОДА ТЕКСТА И ЧИСЕЛ ---
         with st.form("calc_form"):
             st.header(t["goal_header"])
             col1, col2 = st.columns(2)
@@ -856,71 +857,61 @@ elif st.session_state.page == "game":
             rate = 90 if is_usd else 1
 
             form_target = st.number_input(f"{t['target']} ({symbol})", min_value=0,
-                                                      value=st.session_state.target, step=1000)
+                                          value=st.session_state.target, step=1000)
 
             st.header(t["data_header"])
             form_current = st.number_input(f"{t['current']} ({symbol})", min_value=0,
-                                                       value=st.session_state.current, step=1000)
-            
-            st.write(t["monthly"])
-            col1, col2, col3, col4 = st.columns(4)
-            with col1: b0 = st.button("100")
-            with col2: b1 = st.button("500")
-            with col3: b2 = st.button("1000")
-            with col4: b3 = st.button("2000")
-            col5, col6, col7 = st.columns(3)
-            with col5: b4 = st.button("3000")
-            with col6: b5 = st.button("5000")
-            with col7: b6 = st.button(t["custom"])
+                                           value=st.session_state.current, step=1000)
 
-            if "custom_mode" not in st.session_state: st.session_state.custom_mode = False
-            
-            # Кнопки внутри формы обновляют только session_state, расчет идет ниже
-            if b0: st.session_state.monthly, st.session_state.custom_mode = 100, False
-            if b1: st.session_state.monthly, st.session_state.custom_mode = 500, False
-            if b2: st.session_state.monthly, st.session_state.custom_mode = 1000, False
-            if b3: st.session_state.monthly, st.session_state.custom_mode = 2000, False
-            if b4: st.session_state.monthly, st.session_state.custom_mode = 3000, False
-            if b5: st.session_state.monthly, st.session_state.custom_mode = 5000, False
-            if b6: st.session_state.custom_mode = True
-
-            if st.session_state.custom_mode:
-                form_custom = st.number_input(t["custom_input"], min_value=1, value=st.session_state.monthly, step=100)
-                st.session_state.monthly = form_custom
-
-            st.header(t["jobs_header"])
-            
-            # Идею подработки генерируем без перезагрузки через session_state
-            if st.form_submit_button(t["hustle_btn"]):
-                idea, income = random.choice(t["hustles"])
-                st.session_state.hustle_result = f'<div class="hustle-box">💡 {t["hustle_result"].format(idea=idea, income=income, symbol=symbol)}</div>'
-            
-            if "hustle_result" in st.session_state:
-                st.markdown(st.session_state.hustle_result, unsafe_allow_html=True)
-
-            job_choice = st.selectbox(t["choose"], [j[0] for j in jobs])
-            base_salary = next((j[1] for j in jobs if j[0] == job_choice), 0)
-            if is_usd: base_salary = base_salary / rate
-
-            if job_choice in [t["own_job"]]:
-                form_extra = st.number_input(f"{t['salary']} ({symbol})", min_value=0,
-                                                         value=st.session_state.extra, step=1000)
-            elif job_choice != t["no"]:
-                form_extra = st.number_input(f"{t['salary']} ({symbol})", min_value=0, value=int(base_salary),
-                                                         step=1000)
-            else:
-                form_extra = 0
-
-            # Кнопка для применения формы
             submitted = st.form_submit_button(t["calc_btn"], use_container_width=True, type="primary")
 
-        # Если форма отправлена - обновляем глобальные переменные
+        # --- КНОПКИ БЫСТРЫХ СУММ ВЫНЕСЕНЫ ИЗ ФОРМЫ ---
+        st.write(t["monthly"])
+        col1, col2, col3, col4 = st.columns(4)
+        with col1: 
+            if st.button("100"): st.session_state.monthly = 100
+        with col2: 
+            if st.button("500"): st.session_state.monthly = 500
+        with col3: 
+            if st.button("1000"): st.session_state.monthly = 1000
+        with col4: 
+            if st.button("2000"): st.session_state.monthly = 2000
+        
+        col5, col6, col7 = st.columns(3)
+        with col5: 
+            if st.button("3000"): st.session_state.monthly = 3000
+        with col6: 
+            if st.button("5000"): st.session_state.monthly = 5000
+        with col7: 
+            if st.button(t["custom"]): st.session_state.custom_mode = True
+
+        if "custom_mode" not in st.session_state: st.session_state.custom_mode = False
+        if st.session_state.custom_mode:
+            custom = st.number_input(t["custom_input"], min_value=1, value=st.session_state.monthly, step=100)
+            st.session_state.monthly = custom
+
+        # --- ПОДРАБОТКА ---
+        st.header(t["jobs_header"])
+        
+        if st.button(t["hustle_btn"]):
+            idea, income = random.choice(t["hustles"])
+            st.markdown(f'<div class="hustle-box">💡 {t["hustle_result"].format(idea=idea, income=income, symbol=symbol)}</div>', unsafe_allow_html=True)
+
+        job_choice = st.selectbox(t["choose"], [j[0] for j in jobs])
+        base_salary = next((j[1] for j in jobs if j[0] == job_choice), 0)
+        if is_usd: base_salary = base_salary / rate
+
+        if job_choice in [t["own_job"]]:
+            st.session_state.extra = st.number_input(f"{t['salary']} ({symbol})", min_value=0, value=st.session_state.extra, step=1000)
+        elif job_choice != t["no"]:
+            st.session_state.extra = st.number_input(f"{t['salary']} ({symbol})", min_value=0, value=int(base_salary), step=1000)
+        else:
+            st.session_state.extra = 0
+
         if submitted:
             st.session_state.goal = form_goal
             st.session_state.target = form_target
             st.session_state.current = form_current
-            st.session_state.extra = form_extra
-            # st.rerun() тут не нужен, Streamlit сам перерисует страницу
 
         symbol_display = symbol
         total_monthly = st.session_state.monthly + st.session_state.extra
