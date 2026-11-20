@@ -226,7 +226,7 @@ def calc_compound(principal, monthly, annual_rate, years):
     contributed = principal + monthly * months
     return total, contributed, balances
 
-# --- СЛОВАРИ (ОСТАВЛЯЕМ КАК ЕСТЬ) ---
+# --- СЛОВАРИ ---
 texts = {
     "Русский": {
         "title": "💰 Questalism", "subtitle": "Твоя мечта. Твой путь. Твои деньги.",
@@ -350,7 +350,8 @@ texts = {
         "quest_done": "✅ Выполнено", "quest_not_done": "❌ Не выполнено", "promo_title": "🎁 Промокод",
         "promo_input": "Введи промокод", "promo_btn": "Активировать",
         "promo_success": "✅ Промокод активирован! +100 💎", "promo_error": "❌ Неверный промокод или уже использован.",
-        "medals_title": "🏅 Мои медали", "medal_3": "🥉 3 дня со мной", "medal_7": "🥈 Неделя силы", "medal_30": "🥇 Месяц дисциплины"
+        "medals_title": "🏅 Мои медали", "medal_3": "🥉 3 дня со мной", "medal_7": "🥈 Неделя силы", "medal_30": "🥇 Месяц дисциплины",
+        "nudge_btn": "👋 Напомнить", "nudge_text_1": "Эй, {name}, ты где? Твоя цель сама себя не накопит!", "nudge_text_2": "{name}, твой стрик плачет! 😭", "nudge_text_3": "Пора вернуться в игру, {name}! 🚀", "nudge_text_4": "{name}, я тебя обгоняю в рейтинге! 🏃‍♂️💨"
     },
     "English": {
         "title": "💰 Questalism", "subtitle": "Your dream. Your path. Your money.",
@@ -448,7 +449,8 @@ texts = {
         "quest_done": "✅ Done", "quest_not_done": "❌ Not done", "promo_title": "🎁 Promo Code",
         "promo_input": "Enter promo code", "promo_btn": "Activate",
         "promo_success": "✅ Promo activated! +100 💎", "promo_error": "❌ Invalid or already used promo code.",
-        "medals_title": "🏅 My Medals", "medal_3": "🥉 3 days streak", "medal_7": "🥈 Week of power", "medal_30": "🥇 Month of discipline"
+        "medals_title": "🏅 My Medals", "medal_3": "🥉 3 days streak", "medal_7": "🥈 Week of power", "medal_30": "🥇 Month of discipline",
+        "nudge_btn": "👋 Nudge", "nudge_text_1": "Hey, {name}, where are you? Your goal won't save itself!", "nudge_text_2": "{name}, your streak is crying! 😭", "nudge_text_3": "Time to get back in the game, {name}! 🚀", "nudge_text_4": "{name}, I'm beating you in the rating! 🏃‍♂️💨"
     }
 }
 
@@ -790,7 +792,7 @@ if st.session_state.page == "home":
         st.rerun()
 
 # ==========================================
-# СТРАНИЦА 2: ЛИГА (С ПРОФИЛЕМ СОПЕРНИКА)
+# СТРАНИЦА 2: ЛИГА (С ПРОФИЛЕМ СОПЕРНИКА И НАПОМИНАНИЯМИ)
 # ==========================================
 elif st.session_state.page == "league":
     st.title(t["league_title"])
@@ -823,6 +825,13 @@ elif st.session_state.page == "league":
                     col_o2.metric("💎", o_crys)
                     col_o3.metric("🔥", f"{o_streak} {t['days']}")
                     st.write(f"Аватар: {o_av}")
+                
+                # --- НАПОМИНАНИЯ (Б) ---
+                if st.button(t["nudge_btn"], key=f"nudge_{name}"):
+                    nudge_options = [t["nudge_text_1"], t["nudge_text_2"], t["nudge_text_3"], t["nudge_text_4"]]
+                    random_nudge = random.choice(nudge_options).format(name=name)
+                    st.code(random_nudge, language="text")
+                    st.caption("Скопируй и отправь другу!")
 
     st.write("---")
 
@@ -885,29 +894,26 @@ elif st.session_state.page == "game":
                         ("Manager", 60000), ("Designer", 65000), ("Marketer", 55000), ("Accountant", 50000),
                         ("Lawyer", 90000), ("Own work", 0)]
 
-        # --- ФОРМА ТОЛЬКО ДЛЯ ВВОДА ТЕКСТА И ЧИСЕЛ ---
-        with st.form("calc_form"):
-            st.header(t["goal_header"])
-            col1, col2 = st.columns(2)
-            with col1:
-                form_goal = st.text_input(t["goal_input"], st.session_state.goal)
-            with col2:
-                currency = st.selectbox(t["currency"], [t["rub"], t["usd"]])
-            is_usd = (currency == t["usd"])
-            symbol = "$" if is_usd else "₽"
-            rate = 90 if is_usd else 1
+        # --- ВЕРНУЛИ КРАСИВУЮ ВЕРСТКУ БЕЗ st.form ---
+        st.header(t["goal_header"])
+        col1, col2 = st.columns(2)
+        with col1:
+            st.session_state.goal = st.text_input(t["goal_input"], st.session_state.goal)
+        with col2:
+            currency = st.selectbox(t["currency"], [t["rub"], t["usd"]])
+        is_usd = (currency == t["usd"])
+        symbol = "$" if is_usd else "₽"
+        rate = 90 if is_usd else 1
 
-            form_target = st.number_input(f"{t['target']} ({symbol})", min_value=0,
-                                          value=st.session_state.target, step=1000)
+        st.session_state.target = st.number_input(f"{t['target']} ({symbol})", min_value=0,
+                                                  value=st.session_state.target, step=1000)
 
-            st.header(t["data_header"])
-            form_current = st.number_input(f"{t['current']} ({symbol})", min_value=0,
-                                           value=st.session_state.current, step=1000)
-
-            submitted = st.form_submit_button(t["calc_btn"], use_container_width=True, type="primary")
-
-        # --- КНОПКИ БЫСТРЫХ СУММ ВЫНЕСЕНЫ ИЗ ФОРМЫ ---
+        st.header(t["data_header"])
+        st.session_state.current = st.number_input(f"{t['current']} ({symbol})", min_value=0,
+                                                   value=st.session_state.current, step=1000)
         st.write(t["monthly"])
+
+        # Кнопки быстрых сумм аккуратно в сетке
         col1, col2, col3, col4 = st.columns(4)
         with col1: 
             if st.button("100"): st.session_state.monthly = 100
@@ -918,7 +924,7 @@ elif st.session_state.page == "game":
         with col4: 
             if st.button("2000"): st.session_state.monthly = 2000
         
-        col5, col6, col7 = st.columns(3)
+        col5, col6, col7, col8 = st.columns(4)
         with col5: 
             if st.button("3000"): st.session_state.monthly = 3000
         with col6: 
@@ -949,11 +955,6 @@ elif st.session_state.page == "game":
         else:
             st.session_state.extra = 0
 
-        if submitted:
-            st.session_state.goal = form_goal
-            st.session_state.target = form_target
-            st.session_state.current = form_current
-
         symbol_display = symbol
         total_monthly = st.session_state.monthly + st.session_state.extra
 
@@ -963,7 +964,7 @@ elif st.session_state.page == "game":
         user_type = t["teen"]
         total_monthly = st.session_state.monthly + st.session_state.extra
 
-    # --- РАСЧЕТЫ ВЫНЕСЕНЫ ЗА ПРЕДЕЛЫ ФОРМЫ ---
+    # --- РАСЧЕТЫ ---
     st.header(t["result"])
 
     if st.session_state.target <= 0:
