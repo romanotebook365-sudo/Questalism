@@ -60,6 +60,7 @@ def save_goal_to_db(user_name, goal_name, target, current):
         conn.execute(
             text("INSERT INTO saved_goals (user_name, goal_name, target_amount, saved_amount) VALUES (:u, :g, :t, :c)"),
             {"u": user_name, "g": goal_name, "t": target, "c": current})
+    st.cache_data.clear()
 
 @st.cache_data(ttl=30)
 def get_saved_goals(user_name):
@@ -157,7 +158,6 @@ def update_streak_and_xp(name):
                       "name": name})
         conn.execute(text("UPDATE leaderboard SET xp = :xp WHERE name = :name"), {"xp": xp, "name": name})
         
-        # Возвращаем обновленные данные, чтобы не делать лишний SELECT
         st.cache_data.clear()
         return get_user_stats(name)
 
@@ -238,7 +238,7 @@ texts = {
         "data_header": "2. Твои данные", "current": "Сколько есть сейчас?",
         "monthly": "Сколько можешь откладывать в месяц?", "custom": "Своё", "custom_input": "Введи сумму:",
         "jobs_header": "3. Твоя подработка", "choose": "Выбери", "no": "Нет", "own_job": "Своя подработка",
-        "salary": "Сколько ты зарабатываешь?", "result": "🏆 Твой результат",
+        "salary": "Сколько ты зарабатываешь?", "result": "🏆 Твой результат", "calc_btn": "Рассчитать",
         "target_label": "Цель", "term_label": "Срок", "inflation_label": "С инфляцией",
         "inflation_info": "Инфляция — это подорожание денег в будущем.", "months": "мес.",
         "chart_month": "Месяц", "chart_balance": "Баланс", "you_at": "Ты на", "to_goal": "% к цели",
@@ -349,7 +349,8 @@ texts = {
         "quest_calc_task": "Рассчитать цель", "quest_read_task": "Прочитать совет",
         "quest_done": "✅ Выполнено", "quest_not_done": "❌ Не выполнено", "promo_title": "🎁 Промокод",
         "promo_input": "Введи промокод", "promo_btn": "Активировать",
-        "promo_success": "✅ Промокод активирован! +100 💎", "promo_error": "❌ Неверный промокод или уже использован."
+        "promo_success": "✅ Промокод активирован! +100 💎", "promo_error": "❌ Неверный промокод или уже использован.",
+        "medals_title": "🏅 Мои медали", "medal_3": "🥉 3 дня со мной", "medal_7": "🥈 Неделя силы", "medal_30": "🥇 Месяц дисциплины"
     },
     "English": {
         "title": "💰 Questalism", "subtitle": "Your dream. Your path. Your money.",
@@ -361,7 +362,7 @@ texts = {
         "data_header": "2. Data", "current": "Current savings?",
         "monthly": "How much can you save per month?", "custom": "Custom", "custom_input": "Amount:",
         "jobs_header": "3. Job", "choose": "Choose", "no": "None", "own_job": "Own",
-        "salary": "Earn?", "result": "🏆 Result",
+        "salary": "Earn?", "result": "🏆 Result", "calc_btn": "Calculate",
         "target_label": "Goal", "term_label": "Term", "inflation_label": "Inflation",
         "inflation_info": "Inflation is price rise.", "months": "mo.",
         "chart_month": "Month", "chart_balance": "Balance", "you_at": "You at", "to_goal": "%",
@@ -446,7 +447,8 @@ texts = {
         "quest_read_task": "Read a tip",
         "quest_done": "✅ Done", "quest_not_done": "❌ Not done", "promo_title": "🎁 Promo Code",
         "promo_input": "Enter promo code", "promo_btn": "Activate",
-        "promo_success": "✅ Promo activated! +100 💎", "promo_error": "❌ Invalid or already used promo code."
+        "promo_success": "✅ Promo activated! +100 💎", "promo_error": "❌ Invalid or already used promo code.",
+        "medals_title": "🏅 My Medals", "medal_3": "🥉 3 days streak", "medal_7": "🥈 Week of power", "medal_30": "🥇 Month of discipline"
     }
 }
 
@@ -571,7 +573,9 @@ st.markdown(
     [data-testid="collapsedControl"] {{display: none;}}
     #MainMenu {{visibility: hidden;}}
     header {{visibility: hidden;}}
-    .stApp {{ background: {bg_css}; background-attachment: fixed; color: {text_color}; }}
+    .stApp > header {{background: transparent;}}
+    [data-testid="stAppViewContainer"] {{background: transparent;}}
+    .stApp {{ background: {bg_css} !important; background-attachment: fixed; color: {text_color}; }}
     h1, h2, h3, p, label, .stMarkdown {{ color: {text_color} !important; }}
     .stButton>button {{ color: white !important; background-color: {btn_color} !important; border: 1px solid {btn_color} !important; }}
     .stButton>button:hover {{ opacity: 0.8; }}
@@ -602,6 +606,13 @@ st.markdown(
     .calendar-day {{ display: inline-block; width: 30px; height: 30px; line-height: 30px; text-align: center; border-radius: 50%; margin: 2px; background-color: rgba(128,128,128,0.2); font-size: 12px; }}
     .calendar-day-active {{ background-color: #00ffcc; color: #000; font-weight: bold; }}
     .quest-check {{ font-size: 20px; margin-right: 10px; }}
+    /* Стили для карточек рекордов (Г) */
+    .record-card {{ background: rgba(128, 128, 128, 0.2); padding: 20px; border-radius: 15px; text-align: center; border: 1px solid rgba(128,128,128,0.3); }}
+    .record-icon {{ font-size: 40px; margin-bottom: 10px; display: block; }}
+    .record-value {{ font-size: 24px; font-weight: bold; color: {text_color}; }}
+    .record-label {{ font-size: 14px; color: gray; margin-top: 5px; }}
+    /* Стили для медалей (В) */
+    .medal-card {{ display: inline-block; background: rgba(255, 215, 0, 0.1); border: 1px solid #ffd700; padding: 10px 15px; border-radius: 20px; margin: 5px; font-weight: bold; color: {text_color}; }}
     </style>
     """,
     unsafe_allow_html=True
@@ -641,6 +652,21 @@ with nav6: nav_button(t["nav_dictionary"], "dictionary", st.session_state.page)
 # ==========================================
 if st.session_state.page == "home":
     st.title(t["dash_hello"].format(name=user_name))
+    
+    # --- МЕДАЛИ (В) ---
+    st.subheader(t["medals_title"])
+    medals_html = ""
+    if streak >= 3: medals_html += f'<div class="medal-card">{t["medal_3"]}</div>'
+    if streak >= 7: medals_html += f'<div class="medal-card">{t["medal_7"]}</div>'
+    if streak >= 30: medals_html += f'<div class="medal-card">{t["medal_30"]}</div>'
+    
+    if medals_html:
+        st.markdown(medals_html, unsafe_allow_html=True)
+    else:
+        st.caption("Пока нет медалей. Копи стрик, чтобы получить первую! 🔥")
+    
+    st.write("---")
+
     col_prof, col_daily = st.columns([1, 1])
     with col_prof:
         st.markdown(f"""
@@ -681,21 +707,38 @@ if st.session_state.page == "home":
                     "UPDATE users SET daily_quest_calc = FALSE, daily_quest_read = FALSE, last_daily_reset = :d WHERE name = :name"),
                              {"d": today_str, "name": user_name})
             st.cache_data.clear()
-            # Обновляем локальную переменную, чтобы не перезагружать страницу
             daily_quest_calc = False
             daily_quest_read = False
 
-        st.markdown(f"{'✅' if True else '❌'} {t['quest_login']}")
-        st.markdown(f"{'✅' if daily_quest_calc else '❌'} {t['quest_calc_task']}")
-        st.markdown(f"{'✅' if daily_quest_read else '❌'} {t['quest_read_task']}")
+        # --- СУНДУКИ (А) ---
+        st.markdown(f"{'✅' if True else '❌'} {t['quest_login']} 🎁")
+        st.markdown(f"{'✅' if daily_quest_calc else '❌'} {t['quest_calc_task']} {'🎁' if daily_quest_calc else ''}")
+        st.markdown(f"{'✅' if daily_quest_read else '❌'} {t['quest_read_task']} {'🎁' if daily_quest_read else ''}")
 
         if daily_quest_calc and daily_quest_read:
             st.success("🎁 Все задания выполнены! Бонус +50 XP")
 
         st.write("---")
+        
+        # --- КАРТОЧКИ РЕКОРДОВ (Г) ---
         st.subheader(t["records_title"])
-        st.write(f"🏆 {t['rec_streak']}: {max_streak}")
-        st.write(f"⭐ {t['rec_level']}: {max_level}")
+        rec_col1, rec_col2 = st.columns(2)
+        with rec_col1:
+            st.markdown(f"""
+            <div class="record-card">
+                <span class="record-icon">🔥</span>
+                <div class="record-value">{max_streak}</div>
+                <div class="record-label">{t['rec_streak']}</div>
+            </div>
+            """, unsafe_allow_html=True)
+        with rec_col2:
+            st.markdown(f"""
+            <div class="record-card">
+                <span class="record-icon">⭐</span>
+                <div class="record-value">{max_level}</div>
+                <div class="record-label">{t['rec_level']}</div>
+            </div>
+            """, unsafe_allow_html=True)
 
         with engine.connect() as conn:
             last_challenge = conn.execute(text("SELECT last_challenge_date FROM users WHERE name = :name"),
@@ -842,74 +885,85 @@ elif st.session_state.page == "game":
                         ("Manager", 60000), ("Designer", 65000), ("Marketer", 55000), ("Accountant", 50000),
                         ("Lawyer", 90000), ("Own work", 0)]
 
-        st.header(t["goal_header"])
-        col1, col2 = st.columns(2)
-        with col1:
-            st.session_state.goal = st.text_input(t["goal_input"], st.session_state.goal)
-        with col2:
-            currency = st.selectbox(t["currency"], [t["rub"], t["usd"]])
-        is_usd = (currency == t["usd"])
-        symbol = "$" if is_usd else "₽"
-        rate = 90 if is_usd else 1
+        # --- ФОРМА ТОЛЬКО ДЛЯ ВВОДА ТЕКСТА И ЧИСЕЛ ---
+        with st.form("calc_form"):
+            st.header(t["goal_header"])
+            col1, col2 = st.columns(2)
+            with col1:
+                form_goal = st.text_input(t["goal_input"], st.session_state.goal)
+            with col2:
+                currency = st.selectbox(t["currency"], [t["rub"], t["usd"]])
+            is_usd = (currency == t["usd"])
+            symbol = "$" if is_usd else "₽"
+            rate = 90 if is_usd else 1
 
-        st.session_state.target = st.number_input(f"{t['target']} ({symbol})", min_value=0,
-                                                  value=st.session_state.target, step=1000)
+            form_target = st.number_input(f"{t['target']} ({symbol})", min_value=0,
+                                          value=st.session_state.target, step=1000)
 
-        st.header(t["data_header"])
-        st.session_state.current = st.number_input(f"{t['current']} ({symbol})", min_value=0,
-                                                   value=st.session_state.current, step=1000)
+            st.header(t["data_header"])
+            form_current = st.number_input(f"{t['current']} ({symbol})", min_value=0,
+                                           value=st.session_state.current, step=1000)
+
+            submitted = st.form_submit_button(t["calc_btn"], use_container_width=True, type="primary")
+
+        # --- КНОПКИ БЫСТРЫХ СУММ ВЫНЕСЕНЫ ИЗ ФОРМЫ ---
         st.write(t["monthly"])
-
         col1, col2, col3, col4 = st.columns(4)
-        with col1: b0 = st.button("100")
-        with col2: b1 = st.button("500")
-        with col3: b2 = st.button("1000")
-        with col4: b3 = st.button("2000")
+        with col1: 
+            if st.button("100"): st.session_state.monthly = 100
+        with col2: 
+            if st.button("500"): st.session_state.monthly = 500
+        with col3: 
+            if st.button("1000"): st.session_state.monthly = 1000
+        with col4: 
+            if st.button("2000"): st.session_state.monthly = 2000
+        
         col5, col6, col7 = st.columns(3)
-        with col5: b4 = st.button("3000")
-        with col6: b5 = st.button("5000")
-        with col7: b6 = st.button(t["custom"])
+        with col5: 
+            if st.button("3000"): st.session_state.monthly = 3000
+        with col6: 
+            if st.button("5000"): st.session_state.monthly = 5000
+        with col7: 
+            if st.button(t["custom"]): st.session_state.custom_mode = True
 
         if "custom_mode" not in st.session_state: st.session_state.custom_mode = False
-        if b0: st.session_state.monthly, st.session_state.custom_mode = 100, False
-        if b1: st.session_state.monthly, st.session_state.custom_mode = 500, False
-        if b2: st.session_state.monthly, st.session_state.custom_mode = 1000, False
-        if b3: st.session_state.monthly, st.session_state.custom_mode = 2000, False
-        if b4: st.session_state.monthly, st.session_state.custom_mode = 3000, False
-        if b5: st.session_state.monthly, st.session_state.custom_mode = 5000, False
-        if b6: st.session_state.custom_mode = True
-
         if st.session_state.custom_mode:
             custom = st.number_input(t["custom_input"], min_value=1, value=st.session_state.monthly, step=100)
             st.session_state.monthly = custom
 
+        # --- ПОДРАБОТКА ---
         st.header(t["jobs_header"])
+        
         if st.button(t["hustle_btn"]):
             idea, income = random.choice(t["hustles"])
-            st.markdown(
-                f'<div class="hustle-box">💡 {t["hustle_result"].format(idea=idea, income=income, symbol=symbol)}</div>',
-                unsafe_allow_html=True)
+            st.markdown(f'<div class="hustle-box">💡 {t["hustle_result"].format(idea=idea, income=income, symbol=symbol)}</div>', unsafe_allow_html=True)
 
         job_choice = st.selectbox(t["choose"], [j[0] for j in jobs])
         base_salary = next((j[1] for j in jobs if j[0] == job_choice), 0)
         if is_usd: base_salary = base_salary / rate
 
         if job_choice in [t["own_job"]]:
-            st.session_state.extra = st.number_input(f"{t['salary']} ({symbol})", min_value=0,
-                                                     value=st.session_state.extra, step=1000)
+            st.session_state.extra = st.number_input(f"{t['salary']} ({symbol})", min_value=0, value=st.session_state.extra, step=1000)
         elif job_choice != t["no"]:
-            st.session_state.extra = st.number_input(f"{t['salary']} ({symbol})", min_value=0, value=int(base_salary),
-                                                     step=1000)
+            st.session_state.extra = st.number_input(f"{t['salary']} ({symbol})", min_value=0, value=int(base_salary), step=1000)
         else:
             st.session_state.extra = 0
+
+        if submitted:
+            st.session_state.goal = form_goal
+            st.session_state.target = form_target
+            st.session_state.current = form_current
+
         symbol_display = symbol
         total_monthly = st.session_state.monthly + st.session_state.extra
+
     else:
         st.info(t["hide_mode_info"])
         symbol_display = "₽"
         user_type = t["teen"]
         total_monthly = st.session_state.monthly + st.session_state.extra
 
+    # --- РАСЧЕТЫ ВЫНЕСЕНЫ ЗА ПРЕДЕЛЫ ФОРМЫ ---
     st.header(t["result"])
 
     if st.session_state.target <= 0:
