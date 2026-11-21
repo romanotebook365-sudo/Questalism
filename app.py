@@ -343,6 +343,7 @@ texts = {
         "feedback_desc": "Насколько тебе удобно пользоваться сайтом? Есть что улучшить?",
         "feedback_placeholder": "Напиши свои мысли...", "feedback_btn": "Отправить отзыв",
         "feedback_done": "✅ Спасибо за твой отзыв!",
+        "support_btn": "💬 Написать в поддержку (Telegram)",
         "streak_freeze_title": "🧊 Заморозка стрика", "streak_freeze_desc": "Пропустил день? Сохрани свой стрик за 50 💎",
         "streak_freeze_btn": "Купить за 50 💎", "streak_freeze_owned": "Куплено: {count} шт.",
         "daily_quests_title": "📅 Ежедневные задания", "quest_login": "Зайти на сайт",
@@ -442,6 +443,7 @@ texts = {
         "feedback_title": "💬 Feedback", "feedback_desc": "How convenient is the site? Anything to improve?",
         "feedback_placeholder": "Write your thoughts...", "feedback_btn": "Send feedback",
         "feedback_done": "✅ Thanks for your feedback!",
+        "support_btn": "💬 Contact Support (Telegram)",
         "streak_freeze_title": "🧊 Streak Freeze", "streak_freeze_desc": "Missed a day? Save your streak for 50 💎",
         "streak_freeze_btn": "Buy for 50 💎", "streak_freeze_owned": "Owned: {count} pcs.",
         "daily_quests_title": "📅 Daily Quests", "quest_login": "Log in", "quest_calc_task": "Calculate goal",
@@ -1170,6 +1172,9 @@ elif st.session_state.page == "game":
         if submitted:
             save_feedback(user_name, f"{rating} - {fb_text}")
             st.success(t["feedback_done"])
+
+    # --- НОВАЯ КНОПКА ПОДДЕРЖКИ ---
+    st.link_button(t["support_btn"], "https://t.me/Saltroman", use_container_width=True)
 
     st.write("---")
     if st.button(t["btn_next_league"], use_container_width=True):
